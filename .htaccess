@@ -1,0 +1,11 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /PresenPro/
+
+  # Jalankan hasil build saat proyek dibuka langsung melalui Apache.
+  RewriteRule ^assets/(.*)$ dist/assets/$1 [L]
+  RewriteRule ^(favicon\.svg|icons\.svg|logo\.png|Maskot\.PNG|probumisil\.png)$ dist/$1 [L]
+  RewriteRule ^dist/(.*)$ dist/$1 [L]
+  RewriteRule ^$ dist/index.html [L]
+  RewriteRule ^(?!backend/|dist/|assets/)(.*)$ dist/index.html [L]
+</IfModule>
