@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Swal from 'sweetalert2'
-import { ArrowLeft, Calendar, CheckCircle2, Clock, MapPin, QrCode, Users, X } from 'lucide-react'
+import { ArrowLeft, Calendar, CheckCircle2, Clock, MapPin, QrCode, Users } from 'lucide-react'
 import { eventsApi, usersApi } from '../lib/api'
 import { PageSkeleton } from '../components/Skeleton'
 import useSkeletonLoading from '../hooks/useSkeletonLoading'
-import MemberQrCard from '../components/MemberQrCard'
 
 function InfoItem({ icon: Icon, label, value }) {
   return (
@@ -23,11 +22,10 @@ function InfoItem({ icon: Icon, label, value }) {
   )
 }
 
-function MeetingCard({ meeting, attendanceStatus, sessionOpen, onAttend, onPermit, onShowQr, submitting, profile, profileComplete, qrOpen }) {
+function MeetingCard({ meeting, attendanceStatus, sessionOpen, onAttend, onPermit, submitting, profileComplete }) {
   const [permitOpen, setPermitOpen] = useState(false)
   const [permitNote, setPermitNote] = useState('')
   const attended = Boolean(attendanceStatus)
-  const online = meeting.attendanceMode === 'online'
   const canAttend = profileComplete && sessionOpen && !attended && !submitting
 
   async function submitPermit(event) {
@@ -51,7 +49,7 @@ function MeetingCard({ meeting, attendanceStatus, sessionOpen, onAttend, onPermi
             <Clock size={13} />
             {meeting.time}
           </p>
-          <p className="mt-1 text-xs font-bold text-[#8b6800]">{online ? 'Online' : 'Offline'}{meeting.place ? ` - ${meeting.place}` : ''}</p>
+          <p className="mt-1 text-xs font-bold text-[#8b6800]">{meeting.attendanceMode === 'online' ? 'Online' : 'Offline'}{meeting.place ? ` - ${meeting.place}` : ''}</p>
         </div>
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${attended ? 'bg-emerald-50 text-emerald-700' : 'bg-[#fff4cf] text-[#8b6800]'}`}>
           {attendanceStatus === 'IZIN' ? 'Izin Tercatat' : attended ? 'Presensi Tercatat' : meeting.status}
@@ -75,14 +73,6 @@ function MeetingCard({ meeting, attendanceStatus, sessionOpen, onAttend, onPermi
       )}
       {!attended && profileComplete && !sessionOpen && (
         <p className="mt-2 text-center text-xs font-semibold text-zinc-500">Absensi belum dibuka oleh Sekre atau Ketua Bidang.</p>
-      )}
-      {qrOpen && !attended && !online && (
-        <div className="relative mt-4">
-          <button type="button" className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-600 shadow" onClick={() => onShowQr(null)} aria-label="Tutup QR">
-            <X size={15} />
-          </button>
-          <MemberQrCard profile={profile} />
-        </div>
       )}
       {!attended && (
         <button
@@ -121,7 +111,6 @@ export default function MemberKegiatanDetail() {
   const [profile, setProfile] = useState(null)
   const [attendanceStatuses, setAttendanceStatuses] = useState({})
   const [sessionStatuses, setSessionStatuses] = useState({})
-  const [qrMeetingId, setQrMeetingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [submittingId, setSubmittingId] = useState(null)
   const [error, setError] = useState('')
@@ -206,11 +195,6 @@ export default function MemberKegiatanDetail() {
   async function handleAttend(meeting) {
     if (!sessionStatuses[meeting.id]) {
       Swal.fire({ icon: 'info', title: 'Absensi belum dibuka', text: 'Tunggu Sekre atau Ketua Bidang membuka sesi absensi.', confirmButtonColor: '#f6bd16' })
-      return
-    }
-
-    if (meeting.attendanceMode !== 'online') {
-      setQrMeetingId(meeting.id)
       return
     }
 
@@ -299,11 +283,8 @@ export default function MemberKegiatanDetail() {
             sessionOpen={sessionStatuses[meeting.id]}
             onAttend={handleAttend}
             onPermit={handlePermit}
-            onShowQr={setQrMeetingId}
             submitting={submittingId === meeting.id}
-            profile={profile}
             profileComplete={profile?.profileComplete}
-            qrOpen={qrMeetingId === meeting.id}
             />
         ))}
         {meetings.length === 0 && (
@@ -315,3 +296,5 @@ export default function MemberKegiatanDetail() {
     </div>
   )
 }
+
+

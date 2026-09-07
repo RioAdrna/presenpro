@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CalendarClock, Camera, CameraOff, CircleDot, ScanLine, Search } from 'lucide-react'
 import SelectMenu from '../components/SelectMenu'
+import TablePagination from '../components/TablePagination'
 import { PageSkeleton } from '../components/Skeleton'
 import {
   getMemberByNim,
@@ -58,6 +59,8 @@ export default function Absensi() {
   const [scanError, setScanError] = useState('')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Semua Status')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
 
   const filteredLogs = useMemo(
     () =>
@@ -68,9 +71,17 @@ export default function Absensi() {
       }),
     [logs, query, status],
   )
+  useEffect(() => {
+    setPage(1)
+  }, [query, status])
+
+  const paginatedLogs = useMemo(
+    () => filteredLogs.slice((page - 1) * pageSize, page * pageSize),
+    [filteredLogs, page],
+  )
+
   const presentCount = logs.filter((log) => log.status === 'HADIR').length + logs.filter((log) => log.status === 'TELAT').length
   const participantCount = activeEvent?.participantCount || 50
-  const percent = Math.round((presentCount / participantCount) * 100)
 
   useEffect(() => {
     logsRef.current = logs
@@ -268,7 +279,7 @@ export default function Absensi() {
                     <p className="text-sm font-black text-zinc-900">{cameraState}</p>
                   </div>
                 </div>
-                <p className="mt-4 text-sm font-semibold text-zinc-600">Posisikan QR anggota di area tengah kamera.</p>
+                <p className="mt-4 text-sm font-semibold text-zinc-600">Posisikan QR ABSENSI di area tengah kamera.</p>
                 <p className="mt-2 text-xs font-bold text-zinc-500">Data yang terbaca akan langsung masuk ke tabel bawah.</p>
                 {scanError && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{scanError}</p>}
               </div>
@@ -287,9 +298,7 @@ export default function Absensi() {
                 <span className="pb-1 text-xl font-black text-zinc-600">/ {participantCount}</span>
               </div>
             </div>
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border-[6px] border-[#b58b00] border-l-[#eee7dd] text-lg font-black text-[#9f7500]">
-              {percent}%
-            </div>
+
           </div>
         </div>
         <div className="surface card-motion p-5">
@@ -335,7 +344,7 @@ export default function Absensi() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#eee7dd]">
-              {filteredLogs.map((log) => (
+              {paginatedLogs.map((log) => (
                 <tr key={`${log.nim}-${log.time}`} className="text-sm transition hover:bg-[#fffaf0]">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
@@ -355,6 +364,7 @@ export default function Absensi() {
           </table>
         </div>
         <p className="border-t border-[#eee7dd] px-5 py-3 text-[11px] font-semibold text-zinc-400 sm:hidden">Geser tabel ke samping untuk melihat semua kolom.</p>
+        <TablePagination page={page} total={filteredLogs.length} pageSize={pageSize} onPageChange={setPage} itemLabel="log" />
       </section>
     </div>
   )

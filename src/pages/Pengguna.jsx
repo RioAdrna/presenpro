@@ -3,6 +3,7 @@ import { Eye, Plus, Search, ShieldCheck, Trash2, ToggleLeft, ToggleRight, CheckC
 import Swal from 'sweetalert2'
 import Modal from '../components/Modal'
 import SelectMenu from '../components/SelectMenu'
+import TablePagination from '../components/TablePagination'
 import { PageSkeleton } from '../components/Skeleton'
 import useSkeletonLoading from '../hooks/useSkeletonLoading'
 import useAuth from '../hooks/useAuth'
@@ -18,6 +19,8 @@ export default function Pengguna() {
   const [approval, setApproval] = useState('Semua Approval')
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
+  const [page, setPage] = useState(1)
+  const pageSize = 10
 
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'super_admin' || user?.roleName === 'super_admin' || user?.roleName === 'Ketua Bidang'
@@ -53,6 +56,15 @@ export default function Pengguna() {
         return matchesQuery && matchesRole && matchesStatus && matchesApproval
       }),
     [users, query, role, status, approval],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, role, status, approval])
+
+  const paginatedUsers = useMemo(
+    () => filteredUsers.slice((page - 1) * pageSize, page * pageSize),
+    [filteredUsers, page],
   )
 
   async function handleSubmit(e) {
@@ -208,7 +220,7 @@ export default function Pengguna() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eee7dd]">
-                  {filteredUsers.map((u) => (
+                  {paginatedUsers.map((u) => (
                     <tr key={u.id} className="text-sm transition hover:bg-[#fffaf0]">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -286,9 +298,7 @@ export default function Pengguna() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between px-5 py-4 text-[11px] font-semibold text-zinc-500 sm:px-7">
-              <p>Menampilkan {filteredUsers.length} dari {users.length} pengguna</p>
-            </div>
+            <TablePagination page={page} total={filteredUsers.length} pageSize={pageSize} onPageChange={setPage} itemLabel="pengguna" />
           </>
         )}
       </section>

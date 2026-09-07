@@ -1,6 +1,6 @@
 export const stats = [
   { label: 'Total Anggota', value: 248, change: '+12 minggu ini', tone: 'blue', trend: 'up' },
-  { label: 'Tingkat Kehadiran', value: '92,4%', change: '+3,1% vs bulan lalu', tone: 'green', trend: 'up' },
+  { label: 'Total Kehadiran', value: '924', change: 'data contoh', tone: 'green', trend: 'up' },
   { label: 'Izin & Cuti', value: 18, change: '-4 minggu ini', tone: 'amber', trend: 'down' },
   { label: 'Terlambat', value: 7, change: '-2 minggu ini', tone: 'rose', trend: 'down' },
 ]

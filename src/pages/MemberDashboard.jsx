@@ -92,20 +92,14 @@ export default function MemberDashboard() {
 
   if (initialLoading || loading) return <PageSkeleton cards={4} />
 
-  const stats = profile?.stats || { present: 0, permit: 0, absent: 0, percentage: 0 }
-  const displayName = profile?.name || user?.name || 'Personel'
+  const stats = profile?.stats || { present: 0, permit: 0, absent: 0 }
+  const displayName = profile?.name || user?.name || 'Anggota'
 
   return (
     <div className="page-shell space-y-5">
       <section className="surface px-5 py-6">
-        <p className="text-xs font-black uppercase tracking-wide text-zinc-500">Beranda Personel</p>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-[26px] font-black leading-tight text-zinc-900">Halo, {displayName}</h1>
-          <p className="text-2xl font-black text-[#9f7500]">{stats.percentage}% <span className="text-xs font-bold text-zinc-500">kehadiran</span></p>
-        </div>
-        <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#eee7dd]">
-          <div className="h-full rounded-full bg-[#ffc400]" style={{ width: `${stats.percentage}%` }} />
-        </div>
+        <h1 className="text-[26px] font-black leading-tight text-zinc-900">Halo, {displayName}</h1>
+        <p className="mt-2 text-sm font-semibold text-zinc-500">Pantau kegiatan dan akses QR absensi dari akun ini.</p>
       </section>
 
       {error && (
@@ -121,8 +115,8 @@ export default function MemberDashboard() {
 
       {profile?.profileComplete ? <MemberQrCard profile={profile} /> : (
         <section className="rounded-lg border border-[#e8dfd2] bg-white p-5">
-          <p className="text-sm font-black text-zinc-900">QR belum tersedia</p>
-          <p className="mt-1 text-xs font-semibold text-zinc-500">Lengkapi nomor HP, fakultas, dan angkatan di Profil untuk mendapatkan QR.</p>
+          <p className="text-sm font-black text-zinc-900">QR ABSENSI belum tersedia</p>
+          <p className="mt-1 text-xs font-semibold text-zinc-500">Lengkapi nomor HP, fakultas, tahun masuk, dan angkatan PROBUMSIL di Profil.</p>
           <Link to="/profil" className="mt-4 inline-flex rounded-full bg-zinc-950 px-4 py-2 text-xs font-black text-white">Lengkapi Profil</Link>
         </section>
       )}

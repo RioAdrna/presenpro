@@ -1,8 +1,7 @@
-CREATE DATABASE IF NOT EXISTS presenpro
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+﻿-- CREATE DATABASE IF NOT EXISTS presenpro
+--   CHARACTER SET utf8mb4
+--   COLLATE utf8mb4_unicode_ci;
 
-USE presenpro;
 
 CREATE TABLE IF NOT EXISTS roles (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -33,6 +32,7 @@ CREATE TABLE IF NOT EXISTS members (
   phone VARCHAR(30) NULL,
   faculty VARCHAR(160) NULL,
   cohort_year SMALLINT UNSIGNED NULL,
+  probumsil_cohort VARCHAR(40) NULL,
   password_hash VARCHAR(255) NULL,
   qr_token VARCHAR(120) NOT NULL UNIQUE,
   status ENUM('aktif', 'nonaktif') NOT NULL DEFAULT 'aktif',
@@ -286,3 +286,4 @@ INSERT INTO app_settings (setting_key, setting_value) VALUES
   ('admin_notification', 'aktif'),
   ('qr_verification', 'wajib')
 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
+

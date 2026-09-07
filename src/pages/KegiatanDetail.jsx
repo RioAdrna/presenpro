@@ -4,6 +4,7 @@ import Swal from 'sweetalert2'
 import { ArrowLeft, Calendar, Check, Clock, Edit3, MapPin, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import useSkeletonLoading from '../hooks/useSkeletonLoading'
 import { PageSkeleton } from '../components/Skeleton'
+import TablePagination from '../components/TablePagination'
 import AttendanceSession from '../components/AttendanceSession'
 import Modal from '../components/Modal'
 import SelectMenu from '../components/SelectMenu'
@@ -135,6 +136,9 @@ export default function KegiatanDetail() {
   const [newDivisionName, setNewDivisionName] = useState('')
   const [memberModalOpen, setMemberModalOpen] = useState(null)
   const [memberSearch, setMemberSearch] = useState('')
+  const [memberCohort, setMemberCohort] = useState('Semua Angkatan')
+  const [memberPage, setMemberPage] = useState(1)
+  const memberPageSize = 8
   const [meetingEditOpen, setMeetingEditOpen] = useState(false)
   const [meetingSaving, setMeetingSaving] = useState(false)
   const [meetingError, setMeetingError] = useState('')
@@ -147,11 +151,31 @@ export default function KegiatanDetail() {
   const editLimit = Number(editForm.participantLimit) || 0
   const isEditLimitReached = editLimit > 0 && totalEditParticipants >= editLimit
 
+  const memberCohortOptions = useMemo(() => {
+    const values = members.map((member) => member.angkatanProbumsil).filter((value) => value && value !== '-')
+    return ['Semua Angkatan', ...Array.from(new Set(values)).sort()]
+  }, [members])
+
   const filteredMembersForPicker = useMemo(() => {
     const term = memberSearch.toLowerCase()
-    if (!term) return members
-    return members.filter((member) => `${member.name} ${member.nim}`.toLowerCase().includes(term))
-  }, [members, memberSearch])
+    let list = members
+    if (term) {
+      list = list.filter((member) => `${member.name} ${member.nim} ${member.angkatanProbumsil || ''}`.toLowerCase().includes(term))
+    }
+    if (memberCohort !== 'Semua Angkatan') {
+      list = list.filter((member) => member.angkatanProbumsil === memberCohort)
+    }
+    return list
+  }, [members, memberSearch, memberCohort])
+
+  useEffect(() => {
+    setMemberPage(1)
+  }, [memberSearch, memberCohort, memberModalOpen])
+
+  const paginatedMembersForPicker = useMemo(
+    () => filteredMembersForPicker.slice((memberPage - 1) * memberPageSize, memberPage * memberPageSize),
+    [filteredMembersForPicker, memberPage],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -213,6 +237,28 @@ export default function KegiatanDetail() {
 
   function removeEditDivision(divisionId) {
     setEditDivisions((current) => current.filter((division) => division.id !== divisionId))
+  }
+
+  async function removeTemplate(template, event) {
+    event.stopPropagation()
+    const result = await Swal.fire({
+      icon: 'warning',
+      title: 'Hapus Template?',
+      text: `Template divisi "${template.name}" akan dihapus.`,
+      showCancelButton: true,
+      confirmButtonText: 'Hapus',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#a1a1aa',
+    })
+    if (!result.isConfirmed) return
+
+    try {
+      const data = await divisionTemplatesApi.remove(template.id)
+      setTemplates(data.divisionTemplates || [])
+    } catch (error) {
+      Swal.fire({ icon: 'error', title: 'Gagal', text: error.message, confirmButtonColor: '#f6bd16' })
+    }
   }
 
   function toggleMemberInDivision(divisionId, memberId) {
@@ -638,12 +684,17 @@ export default function KegiatanDetail() {
       <Modal open={divisionModalOpen} title="Tambah Divisi Kegiatan" onClose={() => setDivisionModalOpen(false)}>
         <div className="space-y-5">
           <div>
-            <p className="mb-2 text-xs font-black uppercase text-zinc-600">Pilih dari Template</p>
+            <p className="mb-2 text-xs font-black uppercase text-zinc-600">Daftar Divisi Tersimpan</p>
             <div className="flex flex-wrap gap-2">
               {templates.map((template) => (
-                <button key={template.id} type="button" className="rounded-lg border border-[#e8dfd2] bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 hover:border-[#d8b149] hover:bg-[#fffaf0]" onClick={() => addEditDivision(template.name)}>
-                  {template.name}
-                </button>
+                <div key={template.id} className="inline-flex overflow-hidden rounded-lg border border-[#e8dfd2] bg-white text-xs font-bold text-zinc-700">
+                  <button type="button" className="px-3 py-1.5 hover:bg-[#fffaf0]" onClick={() => addEditDivision(template.name)}>
+                    {template.name}
+                  </button>
+                  <button type="button" className="flex w-8 items-center justify-center border-l border-[#e8dfd2] text-zinc-400 hover:bg-red-50 hover:text-red-600" onClick={(event) => removeTemplate(template, event)} aria-label={`Hapus template ${template.name}`} title="Hapus template">
+                    <X size={13} />
+                  </button>
+                </div>
               ))}
             </div>
           </div>
@@ -670,13 +721,16 @@ export default function KegiatanDetail() {
 
       <Modal open={memberModalOpen !== null} title={`Anggota: ${editDivisions.find((division) => division.id === memberModalOpen)?.name || ''}`} onClose={() => { setMemberModalOpen(null); setMemberSearch('') }}>
         <div className="space-y-4">
-          <label className="relative block">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input value={memberSearch} onChange={(input) => setMemberSearch(input.target.value)} placeholder="Cari anggota..." className="h-10 w-full rounded-lg border border-[#e8dfd2] pl-9 pr-3 text-sm font-semibold outline-none focus:border-[#d8b149]" />
-          </label>
+          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+            <label className="relative block">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input value={memberSearch} onChange={(input) => setMemberSearch(input.target.value)} placeholder="Cari anggota..." className="h-10 w-full rounded-lg border border-[#e8dfd2] pl-9 pr-3 text-sm font-semibold outline-none focus:border-[#d8b149]" />
+            </label>
+            <SelectMenu value={memberCohort} options={memberCohortOptions} onChange={setMemberCohort} buttonClassName="h-10 rounded-lg" />
+          </div>
 
-          <div className="max-h-[300px] overflow-y-auto rounded-xl border border-[#e8dfd2] bg-white">
-            {filteredMembersForPicker.map((member) => {
+          <div className="rounded-xl border border-[#e8dfd2] bg-white">
+            {paginatedMembersForPicker.map((member) => {
               const currentDivision = editDivisions.find((division) => division.id === memberModalOpen)
               const isSelected = currentDivision?.members.includes(member.id)
               const otherDivision = editDivisions.find((division) => division.id !== memberModalOpen && division.members.includes(member.id))
@@ -699,6 +753,7 @@ export default function KegiatanDetail() {
             {filteredMembersForPicker.length === 0 && (
               <div className="p-4 text-center text-xs font-medium text-zinc-500">Tidak ada anggota ditemukan.</div>
             )}
+            <TablePagination page={memberPage} total={filteredMembersForPicker.length} pageSize={memberPageSize} onPageChange={setMemberPage} itemLabel="anggota" />
           </div>
 
           <div className="flex justify-end pt-2">

@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronRight, Download, Filter, UserRoundCheck, UserRoundX, Users } from 'lucide-react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Download, Filter, ListChecks, UserRoundCheck, UserRoundX, Users } from 'lucide-react'
 import Swal from 'sweetalert2'
 import { PageSkeleton } from '../components/Skeleton'
+import SelectMenu from '../components/SelectMenu'
+import TablePagination from '../components/TablePagination'
 import useSkeletonLoading from '../hooks/useSkeletonLoading'
 import { eventsApi, reportsApi } from '../lib/api'
+
+const pageSize = 10
 
 function MetricCard({ metric }) {
   const Icon = metric.icon
   const valueColor = metric.tone === 'yellow' ? 'text-[#b58b00]' : 'text-zinc-900'
-  const toneColor = metric.tone === 'red' ? 'text-red-500' : 'text-emerald-600'
 
   return (
     <article className="surface card-motion rounded-none p-5">
@@ -16,7 +19,6 @@ function MetricCard({ metric }) {
         <div>
           <p className="text-xs font-semibold text-zinc-700">{metric.label}</p>
           <p className={`mt-5 text-[32px] font-black leading-none ${valueColor}`}>{metric.value}</p>
-          <p className={`mt-3 text-[11px] font-bold ${metric.tone === 'yellow' ? 'text-zinc-500' : toneColor}`}>{metric.note}</p>
         </div>
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#fff4cf] text-[#9f7500]">
           <Icon size={17} />
@@ -26,33 +28,17 @@ function MetricCard({ metric }) {
   )
 }
 
-function PercentBadge({ percentage }) {
-  const color =
-    percentage >= 95
-      ? 'bg-emerald-100 text-emerald-700'
-      : percentage >= 85
-        ? 'bg-[#ffc400] text-zinc-950'
-        : 'bg-zinc-200 text-zinc-600'
-  return <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${color}`}>{percentage}%</span>
-}
-
 export default function Laporan() {
   const loading = useSkeletonLoading()
-
-  // Data from API
   const [events, setEvents] = useState([])
   const [loadingEvents, setLoadingEvents] = useState(true)
-
-  // Filter state
   const [selectedEventSlug, setSelectedEventSlug] = useState('all')
   const [selectedMeetingId, setSelectedMeetingId] = useState('all')
-
-  // Report data
   const [rows, setRows] = useState([])
-  const [summary, setSummary] = useState({ totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, avgPercentage: 0, memberCount: 0 })
+  const [summary, setSummary] = useState({ totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, memberCount: 0 })
   const [loadingReport, setLoadingReport] = useState(false)
+  const [page, setPage] = useState(1)
 
-  // Load events on mount
   useEffect(() => {
     let cancelled = false
     setLoadingEvents(true)
@@ -69,19 +55,16 @@ export default function Laporan() {
     return () => { cancelled = true }
   }, [])
 
-  // Get meetings for the selected event
   const selectedEvent = useMemo(
     () => events.find(e => e.id === selectedEventSlug),
-    [events, selectedEventSlug]
+    [events, selectedEventSlug],
   )
   const meetings = useMemo(() => selectedEvent?.meetings || [], [selectedEvent])
 
-  // Reset meeting filter when event changes
   useEffect(() => {
     setSelectedMeetingId('all')
   }, [selectedEventSlug])
 
-  // Fetch report
   const fetchReport = useCallback(async () => {
     setLoadingReport(true)
     try {
@@ -90,25 +73,33 @@ export default function Laporan() {
       if (selectedMeetingId !== 'all') params.meeting = selectedMeetingId
       const data = await reportsApi.attendance(params)
       setRows(data.rows || [])
-      setSummary(data.summary || { totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, avgPercentage: 0, memberCount: 0 })
+      setSummary(data.summary || { totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, memberCount: 0 })
     } catch {
       setRows([])
-      setSummary({ totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, avgPercentage: 0, memberCount: 0 })
+      setSummary({ totalPresent: 0, totalLate: 0, totalPermit: 0, totalAbsent: 0, memberCount: 0 })
     } finally {
       setLoadingReport(false)
     }
   }, [selectedEventSlug, selectedMeetingId])
 
-  // Auto-fetch on mount and when filter changes
   useEffect(() => {
     fetchReport()
   }, [fetchReport])
 
+  useEffect(() => {
+    setPage(1)
+  }, [rows])
+
+  const paginatedRows = useMemo(
+    () => rows.slice((page - 1) * pageSize, page * pageSize),
+    [rows, page],
+  )
+
   const metrics = [
-    { label: 'Hadir Tepat Waktu', value: summary.totalPresent.toLocaleString('id-ID'), note: `${summary.memberCount} anggota ditampilkan`, icon: UserRoundCheck, tone: 'green' },
-    { label: 'Total Telat', value: summary.totalLate.toLocaleString('id-ID'), note: 'melewati batas toleransi', icon: UserRoundX, tone: 'yellow' },
-    { label: 'Total Izin/Sakit', value: summary.totalPermit, note: 'sesuai filter aktif', icon: Users, tone: summary.totalPermit > 3 ? 'red' : 'green' },
-    { label: 'Total Alpa', value: summary.totalAbsent, note: 'sesuai filter aktif', icon: UserRoundX, tone: summary.totalAbsent > 1 ? 'red' : 'green' },
+    { label: 'Hadir Tepat Waktu', value: summary.totalPresent.toLocaleString('id-ID'), icon: UserRoundCheck, tone: 'green' },
+    { label: 'Total Telat', value: summary.totalLate.toLocaleString('id-ID'), icon: UserRoundX, tone: 'yellow' },
+    { label: 'Total Izin/Sakit', value: summary.totalPermit, icon: Users, tone: summary.totalPermit > 3 ? 'red' : 'green' },
+    { label: 'Total Alpa', value: summary.totalAbsent, icon: UserRoundX, tone: summary.totalAbsent > 1 ? 'red' : 'green' },
   ]
 
   function reportTitle() {
@@ -129,10 +120,254 @@ export default function Laporan() {
       .replaceAll("'", '&#039;')
   }
 
-  function csvCell(value) {
-    return `"${String(value ?? '').replaceAll('"', '""')}"`
+  function exportColumns() {
+    return [
+      { key: 'nim', label: 'NIM-P', align: 'left', min: 130, max: 190 },
+      { key: 'name', label: 'Nama', align: 'left', min: 190, max: 280 },
+      { key: 'present', label: 'Hadir Tepat Waktu', align: 'center', min: 105, max: 150 },
+      { key: 'late', label: 'Telat', align: 'center', min: 70, max: 95 },
+      { key: 'permit', label: 'Izin/Sakit', align: 'center', min: 85, max: 120 },
+      { key: 'absent', label: 'Alpa', align: 'center', min: 70, max: 95 },
+    ]
   }
 
+  function exportValue(row, column) {
+    return row[column.key] ?? ''
+  }
+
+  function exportColumnWidth(column, reportRows) {
+    const maxChars = Math.max(
+      column.label.length,
+      ...reportRows.map((row) => String(exportValue(row, column)).length),
+    )
+    return Math.min(column.max, Math.max(column.min, maxChars * 8 + 28))
+  }
+
+  function exportTableHtml(reportRows) {
+    const columns = exportColumns()
+    const colgroup = [
+      '<col style="width:48px" />',
+      ...columns.map((column) => `<col style="width:${exportColumnWidth(column, reportRows)}px" />`),
+    ].join('')
+    const header = columns
+      .map((column) => `<th style="text-align:${column.align}">${escapeHtml(column.label)}</th>`)
+      .join('')
+
+    return `
+      <table>
+        <colgroup>${colgroup}</colgroup>
+        <thead>
+          <tr>
+            <th style="text-align:center">No</th>${header}
+          </tr>
+        </thead>
+        <tbody>
+          ${reportRows.map((row, index) => `
+            <tr>
+              <td style="text-align:center">${index + 1}</td>
+              ${columns.map((column) => `<td style="text-align:${column.align}">${escapeHtml(exportValue(row, column))}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `
+  }
+
+  function exportDocumentHtml(title, reportRows, mode) {
+    const generatedAt = new Date().toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+
+    return `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(title)}</title>
+          <style>
+            @page { size: landscape; margin: 14mm; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color: #18181b; padding: ${mode === 'excel' ? '16px' : '0'}; }
+            h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+            .meta { margin: 6px 0 16px; color: #52525b; font-size: 11px; }
+            table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 11px; }
+            th, td { border: 1px solid #b8b8b8; padding: 7px 8px; vertical-align: middle; white-space: nowrap; }
+            th { background: #f4f4f5; color: #18181b; font-weight: 700; }
+            tbody tr:nth-child(even) td { background: #fafafa; }
+            td:nth-child(3) { white-space: normal; }
+          </style>
+        </head>
+        <body>
+          <h1>Laporan Kehadiran PresenPRO</h1>
+          ${mode === 'excel' ? `<p class="meta">${escapeHtml(title)} | Dicetak ${escapeHtml(generatedAt)} | ${reportRows.length} record</p>` : ''}
+          ${exportTableHtml(reportRows)}
+        </body>
+      </html>
+    `
+  }
+
+  function xmlCell(value, rowIndex, columnIndex, style = 0) {
+    const reference = `${columnName(columnIndex)}${rowIndex}`
+    const text = String(value ?? '')
+    const styleAttr = style ? ` s="${style}"` : ''
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return `<c r="${reference}"${styleAttr}><v>${value}</v></c>`
+    }
+
+    return `<c r="${reference}" t="inlineStr"${styleAttr}><is><t>${escapeXml(text)}</t></is></c>`
+  }
+
+  function columnName(index) {
+    let name = ''
+    let current = index
+    while (current > 0) {
+      const remainder = (current - 1) % 26
+      name = String.fromCharCode(65 + remainder) + name
+      current = Math.floor((current - 1) / 26)
+    }
+    return name
+  }
+
+  function escapeXml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&apos;')
+  }
+
+  function createXlsxWorkbook(title, reportRows) {
+    const columns = exportColumns()
+    const headers = ['No', ...columns.map((column) => column.label)]
+    const bodyRows = reportRows.map((row, index) => [
+      index + 1,
+      ...columns.map((column) => exportValue(row, column)),
+    ])
+    const allRows = [headers, ...bodyRows]
+    const lastCell = `${columnName(headers.length)}${allRows.length}`
+    const columnWidths = [
+      7,
+      ...columns.map((column) => Math.round(exportColumnWidth(column, reportRows) / 7)),
+    ]
+
+    const sheetRows = allRows.map((row, rowIndex) => {
+      const number = rowIndex + 1
+      const cells = row.map((value, columnIndex) => xmlCell(value, number, columnIndex + 1, rowIndex === 0 ? 1 : 0)).join('')
+      return `<row r="${number}">${cells}</row>`
+    }).join('')
+
+    const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:${lastCell}"/>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <cols>${columnWidths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(6, Math.min(42, width))}" customWidth="1"/>`).join('')}</cols>
+  <sheetData>${sheetRows}</sheetData>
+  <autoFilter ref="A1:${lastCell}"/>
+</worksheet>`
+
+    const sheetName = title.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'Laporan'
+    const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`
+
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F4F5"/><bgColor indexed="64"/></patternFill></fill></fills>
+  <borders count="2"><border/><border><left style="thin"><color rgb="FFB8B8B8"/></left><right style="thin"><color rgb="FFB8B8B8"/></right><top style="thin"><color rgb="FFB8B8B8"/></top><bottom style="thin"><color rgb="FFB8B8B8"/></bottom></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/><xf numFmtId="0" fontId="1" fillId="1" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/></cellXfs>
+</styleSheet>`
+
+    return createZipFile([
+      { name: '[Content_Types].xml', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>` },
+      { name: '_rels/.rels', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>` },
+      { name: 'xl/workbook.xml', content: workbook },
+      { name: 'xl/_rels/workbook.xml.rels', content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>` },
+      { name: 'xl/styles.xml', content: styles },
+      { name: 'xl/worksheets/sheet1.xml', content: worksheet },
+    ])
+  }
+
+  function createZipFile(files) {
+    const encoder = new TextEncoder()
+    const parts = []
+    const centralParts = []
+    let offset = 0
+
+    files.forEach((file) => {
+      const nameBytes = encoder.encode(file.name)
+      const contentBytes = encoder.encode(file.content)
+      const crc = crc32(contentBytes)
+      const localHeader = zipHeader(0x04034b50, [
+        [20, 2], [0, 2], [0, 2], [0, 2], [0, 2], [crc, 4],
+        [contentBytes.length, 4], [contentBytes.length, 4], [nameBytes.length, 2], [0, 2],
+      ])
+      parts.push(localHeader, nameBytes, contentBytes)
+
+      const centralHeader = zipHeader(0x02014b50, [
+        [20, 2], [20, 2], [0, 2], [0, 2], [0, 2], [0, 2], [crc, 4],
+        [contentBytes.length, 4], [contentBytes.length, 4], [nameBytes.length, 2], [0, 2],
+        [0, 2], [0, 2], [0, 2], [0, 4], [offset, 4],
+      ])
+      centralParts.push(centralHeader, nameBytes)
+      offset += localHeader.length + nameBytes.length + contentBytes.length
+    })
+
+    const centralSize = centralParts.reduce((total, part) => total + part.length, 0)
+    const endHeader = zipHeader(0x06054b50, [
+      [0, 2], [0, 2], [files.length, 2], [files.length, 2], [centralSize, 4], [offset, 4], [0, 2],
+    ])
+
+    return new Blob([...parts, ...centralParts, endHeader], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  }
+
+  function zipHeader(signature, fields) {
+    const size = 4 + fields.reduce((total, field) => total + field[1], 0)
+    const bytes = new Uint8Array(size)
+    const view = new DataView(bytes.buffer)
+    let offset = 0
+    view.setUint32(offset, signature, true)
+    offset += 4
+    fields.forEach(([value, byteSize]) => {
+      if (byteSize === 2) view.setUint16(offset, value, true)
+      if (byteSize === 4) view.setUint32(offset, value, true)
+      offset += byteSize
+    })
+    return bytes
+  }
+
+  function crc32(bytes) {
+    let crc = 0xffffffff
+    for (let index = 0; index < bytes.length; index += 1) {
+      crc ^= bytes[index]
+      for (let bit = 0; bit < 8; bit += 1) {
+        crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+      }
+    }
+    return (crc ^ 0xffffffff) >>> 0
+  }
   function exportReport(type) {
     if (rows.length === 0) {
       Swal.fire({ icon: 'warning', title: 'Tidak ada data', text: 'Tidak ada data laporan yang bisa diekspor.', confirmButtonColor: '#f6bd16' })
@@ -143,85 +378,37 @@ export default function Laporan() {
     const fileName = `presenpro-${safeFileName(title)}`
 
     if (type === 'Excel') {
-      const header = ['NIM-P', 'Nama', 'Hadir Tepat Waktu', 'Telat', 'Izin/Sakit', 'Alpa', 'Persentase']
-      const body = rows.map(row => [row.nim, row.name, row.present, row.late, row.permit, row.absent, `${row.percentage}%`])
-      const csv = [header, ...body].map(line => line.map(csvCell).join(',')).join('\r\n')
-      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
+      const blob = createXlsxWorkbook(title, rows)
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${fileName}.csv`
+      link.download = `${fileName}.xlsx`
       link.click()
       URL.revokeObjectURL(url)
       return
     }
 
-    const tableRows = rows.map(row => `
-      <tr>
-        <td>${escapeHtml(row.nim)}</td>
-        <td>${escapeHtml(row.name)}</td>
-        <td>${escapeHtml(row.present)}</td>
-        <td>${escapeHtml(row.late)}</td>
-        <td>${escapeHtml(row.permit)}</td>
-        <td>${escapeHtml(row.absent)}</td>
-        <td>${escapeHtml(row.percentage)}%</td>
-      </tr>
-    `).join('')
-
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer')
+    const printWindow = window.open('', '_blank', 'width=1200,height=800')
     if (!printWindow) {
       Swal.fire({ icon: 'error', title: 'Gagal', text: 'Popup browser diblokir. Izinkan popup untuk export PDF.', confirmButtonColor: '#f6bd16' })
       return
     }
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${escapeHtml(title)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #18181b; padding: 24px; }
-            h1 { margin: 0 0 6px; font-size: 22px; }
-            p { margin: 0 0 18px; color: #52525b; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #d4d4d8; padding: 8px; text-align: left; }
-            th { background: #f4f4f5; }
-            .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 18px 0; }
-            .summary div { border: 1px solid #d4d4d8; padding: 10px; }
-            .summary strong { display: block; font-size: 16px; }
-          </style>
-        </head>
-        <body>
-          <h1>Laporan Kehadiran PresenPRO</h1>
-          <p>${escapeHtml(title)}</p>
-          <div class="summary">
-            <div><span>Total Hadir</span><strong>${summary.totalPresent}</strong></div>
-            <div><span>Total Telat</span><strong>${summary.totalLate}</strong></div>
-            <div><span>Rata-rata</span><strong>${summary.avgPercentage}%</strong></div>
-            <div><span>Izin/Sakit</span><strong>${summary.totalPermit}</strong></div>
-            <div><span>Alpa</span><strong>${summary.totalAbsent}</strong></div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>NIM-P</th><th>Nama</th><th>Hadir Tepat Waktu</th><th>Telat</th><th>Izin/Sakit</th><th>Alpa</th><th>Persentase</th>
-              </tr>
-            </thead>
-            <tbody>${tableRows}</tbody>
-          </table>
-        </body>
-      </html>
-    `)
+    printWindow.document.open()
+    printWindow.document.write(exportDocumentHtml(title, rows, 'pdf'))
     printWindow.document.close()
-    printWindow.focus()
-    printWindow.print()
+
+    window.setTimeout(() => {
+      printWindow.focus()
+      printWindow.print()
+    }, 350)
   }
 
   if (loading) return <PageSkeleton table />
 
   return (
     <div className="page-shell space-y-6">
-      {/* ── Filter Section ── */}
-      <section className="surface overflow-hidden">
+      <section className="surface">
         <div className="border-b border-[#eee7dd] px-5 py-4">
           <h2 className="flex items-center gap-2 text-sm font-black text-zinc-800">
             <Filter size={15} className="text-[#9f7500]" />
@@ -229,161 +416,48 @@ export default function Laporan() {
           </h2>
         </div>
 
-        <div className="p-4">
-          {/* Event Selection */}
-          <p className="mb-2 text-[11px] font-black uppercase text-zinc-500">Pilih Kegiatan</p>
-          {loadingEvents ? (
-            <div className="rounded-xl border border-[#e8dfd2] bg-[#fbfaf8] p-6 text-center text-xs font-bold text-zinc-400">Memuat kegiatan...</div>
-          ) : events.length === 0 ? (
-            <div className="rounded-xl border border-[#e8dfd2] bg-[#fbfaf8] p-6 text-center text-xs font-bold text-zinc-400">Belum ada kegiatan.</div>
-          ) : (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {/* All events option */}
-              <button
-                type="button"
-                onClick={() => setSelectedEventSlug('all')}
-                className={`group relative flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                  selectedEventSlug === 'all'
-                    ? 'border-[#f6bd16] bg-[#fffbeb] shadow-[0_0_0_2px_#f6bd16]'
-                    : 'border-[#e8dfd2] bg-white hover:border-[#d8b149] hover:bg-[#fffaf0]'
-                }`}
-              >
-                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                  selectedEventSlug === 'all' ? 'bg-[#f6bd16] text-white' : 'bg-[#f2efec] text-zinc-500'
-                }`}>
-                  <Users size={14} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-black text-zinc-800">Semua Kegiatan</p>
-                  <p className="text-[10px] font-semibold text-zinc-500">Tampilkan seluruh data</p>
-                </div>
-                {selectedEventSlug === 'all' && (
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#f6bd16] text-white">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                  </span>
-                )}
-              </button>
-
-              {events.map(ev => (
-                <button
-                  key={ev.id}
-                  type="button"
-                  onClick={() => setSelectedEventSlug(ev.id)}
-                  className={`group relative flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                    selectedEventSlug === ev.id
-                      ? 'border-[#f6bd16] bg-[#fffbeb] shadow-[0_0_0_2px_#f6bd16]'
-                      : 'border-[#e8dfd2] bg-white hover:border-[#d8b149] hover:bg-[#fffaf0]'
-                  }`}
-                >
-                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                    selectedEventSlug === ev.id ? 'bg-[#f6bd16] text-white' : 'bg-[#f2efec] text-zinc-500'
-                  }`}>
-                    {ev.title.charAt(0)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black text-zinc-800">{ev.title}</p>
-                    <p className="text-[10px] font-semibold text-zinc-500">{ev.date} • {ev.participantCount} peserta</p>
-                  </div>
-                  {selectedEventSlug === ev.id ? (
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#f6bd16] text-white">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                    </span>
-                  ) : (
-                    <ChevronRight size={16} className="shrink-0 text-zinc-400 transition group-hover:text-zinc-600" />
-                  )}
-                </button>
-              ))}
+        <div className="grid gap-3 p-4 md:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-[11px] font-black uppercase text-zinc-500">Kegiatan</span>
+            <SelectMenu
+              value={selectedEvent?.title || 'Semua Kegiatan'}
+              options={['Semua Kegiatan', ...events.map((event) => event.title)]}
+              onChange={(value) => {
+                const event = events.find((item) => item.title === value)
+                setSelectedEventSlug(event?.id || 'all')
+              }}
+              icon={CalendarDays}
+              buttonClassName="h-11 rounded-lg bg-[#fbfaf8] text-sm"
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[11px] font-black uppercase text-zinc-500">Pertemuan</span>
+            <div className={selectedEventSlug === 'all' || meetings.length === 0 ? 'pointer-events-none opacity-60' : ''}>
+              <SelectMenu
+                value={selectedMeetingId === 'all' ? 'Semua Pertemuan' : meetings.find((meeting) => String(meeting.id) === selectedMeetingId)?.title || 'Semua Pertemuan'}
+                options={['Semua Pertemuan', ...meetings.map((meeting) => meeting.title)]}
+                onChange={(value) => {
+                  const meeting = meetings.find((item) => item.title === value)
+                  setSelectedMeetingId(meeting ? String(meeting.id) : 'all')
+                }}
+                icon={ListChecks}
+                buttonClassName="h-11 rounded-lg bg-[#fbfaf8] text-sm"
+              />
             </div>
-          )}
-
-          {/* Meeting Sub-filter — only shows when a specific event is selected */}
-          {selectedEventSlug !== 'all' && meetings.length > 0 && (
-            <div className="mt-5">
-              <p className="mb-2 text-[11px] font-black uppercase text-zinc-500">Pilih Pertemuan</p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {/* All meetings */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMeetingId('all')}
-                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                    selectedMeetingId === 'all'
-                      ? 'border-[#10b981] bg-emerald-50 shadow-[0_0_0_2px_#10b981]'
-                      : 'border-[#e8dfd2] bg-white hover:border-emerald-300 hover:bg-emerald-50/50'
-                  }`}
-                >
-                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                    selectedMeetingId === 'all' ? 'bg-emerald-500 text-white' : 'bg-[#f2efec] text-zinc-500'
-                  }`}>
-                    <Users size={12} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-zinc-800">Semua Pertemuan</p>
-                  </div>
-                  {selectedMeetingId === 'all' && (
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                    </span>
-                  )}
-                </button>
-
-                {meetings.map(m => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setSelectedMeetingId(String(m.id))}
-                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                      selectedMeetingId === String(m.id)
-                        ? 'border-[#10b981] bg-emerald-50 shadow-[0_0_0_2px_#10b981]'
-                        : 'border-[#e8dfd2] bg-white hover:border-emerald-300 hover:bg-emerald-50/50'
-                    }`}
-                  >
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                      selectedMeetingId === String(m.id) ? 'bg-emerald-500 text-white' : 'bg-[#f2efec] text-zinc-500'
-                    }`}>
-                      {m.title.charAt(0)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-zinc-800">{m.title}</p>
-                      <p className="text-[10px] font-semibold text-zinc-500">{m.date} • {m.time}</p>
-                    </div>
-                    {selectedMeetingId === String(m.id) && (
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedEventSlug !== 'all' && meetings.length === 0 && (
-            <div className="mt-5">
-              <p className="mb-2 text-[11px] font-black uppercase text-zinc-500">Pertemuan</p>
-              <div className="rounded-xl border border-[#e8dfd2] bg-[#fbfaf8] p-4 text-center text-xs font-bold text-zinc-400">
-                Kegiatan ini belum memiliki pertemuan.
-              </div>
-            </div>
-          )}
+          </label>
+          {loadingEvents && <p className="text-xs font-semibold text-zinc-500 md:col-span-2">Memuat kegiatan...</p>}
         </div>
       </section>
 
-      {/* ── Metrics ── */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map(metric => <MetricCard key={metric.label} metric={metric} />)}
       </section>
 
-      {/* ── Table ── */}
-      <section className="surface p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <section className="surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee7dd] px-5 py-4">
           <div>
             <h2 className="text-xl font-black text-zinc-900">Detail Laporan</h2>
-            {selectedEvent && (
-              <p className="mt-1 text-xs font-bold text-[#9f7500]">
-                {selectedEvent.title}
-                {selectedMeetingId !== 'all' && ` › ${meetings.find(m => String(m.id) === selectedMeetingId)?.title || ''}`}
-              </p>
-            )}
+            {selectedEvent && <p className="mt-1 text-xs font-bold text-[#9f7500]">{reportTitle()}</p>}
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
             <button className="button-primary px-4 py-2" onClick={() => exportReport('PDF')}>
@@ -402,7 +476,7 @@ export default function Laporan() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left">
+              <table className="w-full min-w-[620px] text-left">
                 <thead className="text-[11px] font-black uppercase text-zinc-600">
                   <tr className="border-b border-[#eee7dd]">
                     <th className="px-3 py-3">Nama Anggota</th>
@@ -410,11 +484,10 @@ export default function Laporan() {
                     <th className="px-3 py-3">Telat</th>
                     <th className="px-3 py-3">Izin/Sakit</th>
                     <th className="px-3 py-3">Alpa</th>
-                    <th className="px-3 py-3 text-right">Persentase</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eee7dd]">
-                  {rows.map(row => (
+                  {paginatedRows.map(row => (
                     <tr key={row.nim} className="text-xs font-semibold text-zinc-700 transition hover:bg-[#fffaf0]">
                       <td className="px-3 py-4">
                         <div className="flex items-center gap-2">
@@ -431,12 +504,11 @@ export default function Laporan() {
                       <td className="px-3 py-4 font-bold text-[#b58b00]">{row.late}</td>
                       <td className="px-3 py-4">{row.permit}</td>
                       <td className="px-3 py-4 text-red-600">{row.absent}</td>
-                      <td className="px-3 py-4 text-right"><PercentBadge percentage={row.percentage} /></td>
                     </tr>
                   ))}
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="px-5 py-10 text-center text-sm font-semibold text-zinc-500">
+                      <td colSpan="5" className="px-5 py-10 text-center text-sm font-semibold text-zinc-500">
                         Tidak ada data kehadiran sesuai filter.
                       </td>
                     </tr>
@@ -445,12 +517,18 @@ export default function Laporan() {
               </table>
             </div>
             <p className="border-t border-[#eee7dd] px-5 py-3 text-[11px] font-semibold text-zinc-400 sm:hidden">Geser tabel ke samping untuk melihat semua kolom.</p>
-            <div className="mt-4 flex items-center justify-between text-[10px] font-semibold text-zinc-500">
-              <p>Menampilkan {rows.length} anggota</p>
-            </div>
+            <TablePagination page={page} total={rows.length} pageSize={pageSize} onPageChange={setPage} itemLabel="anggota" />
           </>
         )}
       </section>
     </div>
   )
 }
+
+
+
+
+
+
+
+

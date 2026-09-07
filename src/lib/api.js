@@ -116,6 +116,7 @@ export const usersApi = {
 export const divisionTemplatesApi = {
   list: () => apiFetch('/division-templates'),
   create: (name) => apiFetch('/division-templates', { method: 'POST', body: { name } }),
+  remove: (id) => apiFetch(`/division-templates/${id}`, { method: 'DELETE' }),
 }
 
 export const reportsApi = {

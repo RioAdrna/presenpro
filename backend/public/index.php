@@ -1,6 +1,4 @@
-<?php
-
-declare(strict_types=1);
+<?php declare(strict_types=1);
 
 date_default_timezone_set('Asia/Jakarta');
 
@@ -171,6 +169,83 @@ function validateMeetingLocation(string $mode, string $location): void
     }
 }
 
+function ensureAppSchema(PDO $pdo): void
+{
+    try {
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = "members"
+               AND COLUMN_NAME = "probumsil_cohort"'
+        );
+        $statement->execute();
+        if ((int) $statement->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE members ADD COLUMN probumsil_cohort VARCHAR(40) NULL AFTER cohort_year');
+        }
+    } catch (Throwable) {
+        // Manual SQL imports still contain the column; ignore migration checks on restricted hosts.
+    }
+
+    try {
+        $pdo->exec(
+            'DELETE ep_duplicate FROM event_participants ep_duplicate
+             JOIN event_participants ep_keep
+               ON ep_keep.event_id = ep_duplicate.event_id
+              AND ep_keep.member_id = ep_duplicate.member_id
+              AND ep_keep.id < ep_duplicate.id'
+        );
+
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM INFORMATION_SCHEMA.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = "event_participants"
+               AND INDEX_NAME = "uq_event_member"'
+        );
+        $statement->execute();
+        if ((int) $statement->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE event_participants ADD UNIQUE KEY uq_event_member (event_id, member_id)');
+        }
+    } catch (Throwable) {
+        // Existing hosts may have different constraints; query-level dedupe still prevents duplicated rows.
+    }
+
+    try {
+        $pdo->exec(
+            'DELETE a_duplicate FROM attendances a_duplicate
+             JOIN attendances a_keep
+               ON COALESCE(a_keep.meeting_id, 0) = COALESCE(a_duplicate.meeting_id, 0)
+              AND a_keep.member_id = a_duplicate.member_id
+              AND a_keep.id <> a_duplicate.id
+             WHERE (
+               CASE a_keep.status WHEN "hadir" THEN 4 WHEN "telat" THEN 3 WHEN "izin" THEN 2 ELSE 1 END
+             ) > (
+               CASE a_duplicate.status WHEN "hadir" THEN 4 WHEN "telat" THEN 3 WHEN "izin" THEN 2 ELSE 1 END
+             )
+                OR ((
+               CASE a_keep.status WHEN "hadir" THEN 4 WHEN "telat" THEN 3 WHEN "izin" THEN 2 ELSE 1 END
+             ) = (
+               CASE a_duplicate.status WHEN "hadir" THEN 4 WHEN "telat" THEN 3 WHEN "izin" THEN 2 ELSE 1 END
+             ) AND a_keep.id < a_duplicate.id)'
+        );
+
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM INFORMATION_SCHEMA.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = "attendances"
+               AND INDEX_NAME = "uq_attendance_meeting_member"'
+        );
+        $statement->execute();
+        if ((int) $statement->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE attendances ADD UNIQUE KEY uq_attendance_meeting_member (meeting_id, member_id)');
+        }
+    } catch (Throwable) {
+        // If the host cannot alter constraints, scan endpoints still guard meeting/member duplication.
+    }
+}
+
 function eventBySlug(PDO $pdo, string $slug): ?array
 {
     $statement = $pdo->prepare(
@@ -188,11 +263,15 @@ function eventBySlug(PDO $pdo, string $slug): ?array
 function eventParticipants(PDO $pdo, int $eventId): array
 {
     $statement = $pdo->prepare(
-        'SELECT members.id, members.nim, members.name, event_divisions.name AS event_division
-         FROM event_participants
-         JOIN members ON members.id = event_participants.member_id
-         LEFT JOIN event_divisions ON event_divisions.id = event_participants.event_division_id
-         WHERE event_participants.event_id = ?
+        'SELECT members.id, members.nim, members.name, COALESCE(event_divisions.name, "Peserta") AS event_division
+         FROM (
+             SELECT event_id, member_id, MIN(event_division_id) AS event_division_id
+             FROM event_participants
+             WHERE event_id = ?
+             GROUP BY event_id, member_id
+         ) ep
+         JOIN members ON members.id = ep.member_id
+         LEFT JOIN event_divisions ON event_divisions.id = ep.event_division_id
          ORDER BY members.name'
     );
     $statement->execute([$eventId]);
@@ -243,19 +322,24 @@ function attendanceRows(PDO $pdo, int $eventId, ?int $meetingId = null): array
     $where = $meetingId ? 'attendances.meeting_id = ?' : 'attendances.event_id = ?';
     $param = $meetingId ?: $eventId;
     $statement = $pdo->prepare(
-        "SELECT members.nim, members.name, event_divisions.name AS event_division, attendances.scanned_at, attendances.status, attendances.note
+        "SELECT attendances.id, members.nim, members.name, COALESCE(event_divisions.name, 'Peserta') AS event_division, attendances.scanned_at, attendances.status, attendances.note
          FROM attendances
          JOIN members ON members.id = attendances.member_id
-         LEFT JOIN event_participants ON event_participants.member_id = members.id AND event_participants.event_id = attendances.event_id
-         LEFT JOIN event_divisions ON event_divisions.id = event_participants.event_division_id
+         LEFT JOIN (
+             SELECT event_id, member_id, MIN(event_division_id) AS event_division_id
+             FROM event_participants
+             GROUP BY event_id, member_id
+         ) ep ON ep.member_id = members.id AND ep.event_id = attendances.event_id
+         LEFT JOIN event_divisions ON event_divisions.id = ep.event_division_id
          WHERE $where
-         ORDER BY attendances.scanned_at DESC"
+         ORDER BY attendances.scanned_at DESC, attendances.id DESC"
     );
     $statement->execute([$param]);
 
     return array_map(static function (array $row): array {
         $parts = explode(' ', $row['name']);
         return [
+            'id' => (int) $row['id'],
             'name' => $row['name'],
             'nim' => $row['nim'],
             'eventDivision' => $row['event_division'],
@@ -399,16 +483,14 @@ function ensureApprovedMemberForUser(PDO $pdo, array $targetUser): array
 
 function finalizeExpiredMeetings(PDO $pdo): void
 {
-    $now = date('Y-m-d H:i:s');
     $statement = $pdo->prepare(
         'SELECT m.id, m.event_id, m.meeting_date, m.start_time, m.end_time, e.created_by
          FROM meetings m
          JOIN events e ON e.id = m.event_id
          WHERE e.status = "selesai"
-            OR m.status = "selesai"
-            OR CONCAT(m.meeting_date, " ", m.end_time) <= ?'
+            OR m.status = "selesai"'
     );
-    $statement->execute([$now]);
+    $statement->execute();
     $meetings = $statement->fetchAll();
 
     foreach ($meetings as $meeting) {
@@ -481,11 +563,13 @@ function finalizeExpiredMeetings(PDO $pdo): void
            AND NOT EXISTS (
                SELECT 1 FROM meetings m2
                WHERE m2.event_id = e.id
-                 AND CONCAT(m2.meeting_date, " ", m2.end_time) > ?
+                 AND m2.status <> "selesai"
            )'
     );
-    $updateEvents->execute([$now]);
+    $updateEvents->execute();
 }
+
+ensureAppSchema($pdo);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $path = routePath();
@@ -592,12 +676,9 @@ try {
         jsonResponse(['message' => 'Unauthorized.'], 401);
     }
 
-    // Sesi online harus bisa dibuka pengelola tepat di akhir rapat sebelum
-    // proses otomatis menutup pertemuan dan membuat status alpa.
-    $isStartingSession = $method === 'POST' && preg_match('#^/events/[^/]+/meetings/\d+/sessions/start$#', $path);
-    if (!$isStartingSession) {
-        finalizeExpiredMeetings($pdo);
-    }
+    // Jangan menutup pertemuan hanya karena jam jadwal sudah lewat. Alpa dibuat
+    // hanya saat kegiatan/pertemuan memang ditandai selesai oleh pengelola.
+    finalizeExpiredMeetings($pdo);
 
     if ($method === 'GET' && $path === '/auth/me') {
         jsonResponse([
@@ -618,6 +699,7 @@ try {
         $phone = trim($body['phone'] ?? '');
         $faculty = trim($body['faculty'] ?? '');
         $angkatan = trim($body['angkatan'] ?? '');
+        $angkatanProbumsil = trim($body['angkatanProbumsil'] ?? $body['probumsilCohort'] ?? '');
         $password = $body['password'] ?? '';
 
         if (!$name) {
@@ -664,16 +746,16 @@ try {
 
             if ($memberId) {
                 $cohortYear = $angkatan !== '' ? (int) $angkatan : null;
-                $stmt = $pdo->prepare('UPDATE members SET name = ?, nim = ?, phone = ?, faculty = ?, cohort_year = ? WHERE id = ?');
-                $stmt->execute([$name, $nim, $phone !== '' ? $phone : null, $faculty !== '' ? $faculty : null, $cohortYear, $memberId]);
+                $stmt = $pdo->prepare('UPDATE members SET name = ?, nim = ?, phone = ?, faculty = ?, cohort_year = ?, probumsil_cohort = ? WHERE id = ?');
+                $stmt->execute([$name, $nim, $phone !== '' ? $phone : null, $faculty !== '' ? $faculty : null, $cohortYear, $angkatanProbumsil !== '' ? $angkatanProbumsil : null, $memberId]);
             } else {
                 $cohortYear = $angkatan !== '' ? (int) $angkatan : null;
                 $qrToken = 'QR-PRESENPRO-' . $nim;
                 $stmt = $pdo->prepare(
-                    'INSERT INTO members (nim, name, phone, faculty, cohort_year, qr_token, status, approved, joined_at)
-                     VALUES (?, ?, ?, ?, ?, ?, "aktif", "approved", CURDATE())'
+                    'INSERT INTO members (nim, name, phone, faculty, cohort_year, probumsil_cohort, qr_token, status, approved, joined_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, "aktif", "approved", CURDATE())'
                 );
-                $stmt->execute([$nim, $name, $phone !== '' ? $phone : null, $faculty !== '' ? $faculty : null, $cohortYear, $qrToken]);
+                $stmt->execute([$nim, $name, $phone !== '' ? $phone : null, $faculty !== '' ? $faculty : null, $cohortYear, $angkatanProbumsil !== '' ? $angkatanProbumsil : null, $qrToken]);
             }
 
             $pdo->commit();
@@ -700,10 +782,6 @@ try {
         $stmt = $pdo->query('SELECT COUNT(*) FROM attendances WHERE DATE(scanned_at) = CURDATE() AND status IN ("hadir", "telat")');
         $presentToday = (int) $stmt->fetchColumn();
 
-        // 4. Tingkat Kehadiran Keseluruhan
-        $stmt = $pdo->query('SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ("hadir", "telat") THEN 1 ELSE 0 END) as present FROM attendances');
-        $attRow = $stmt->fetch();
-        $attPercent = ($attRow['total'] > 0) ? round(($attRow['present'] / $attRow['total']) * 100, 1) : 0;
 
         // Recent Activities
         $stmt = $pdo->query('
@@ -754,8 +832,7 @@ try {
             'stats' => [
                 'totalMembers' => $totalMembers,
                 'activeEvents' => $activeEvents,
-                'presentToday' => $presentToday,
-                'attendancePercent' => $attPercent
+                'presentToday' => $presentToday
             ],
             'recentActivities' => $recentActivities,
             'charts' => $charts
@@ -775,22 +852,23 @@ try {
 
     if ($method === 'GET' && $path === '/members') {
         $statement = $pdo->query(
-            'SELECT members.id, members.nim, members.name, members.status, members.approved
+            'SELECT members.id, members.nim, members.name, members.status, members.approved, members.faculty, members.cohort_year, members.probumsil_cohort
              FROM members
              WHERE members.approved = "approved"
              ORDER BY members.name'
         );
-        // Compute attendance rate per member
-        $rows = $statement->fetchAll();
-        $stmt = $pdo->prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ("hadir", "telat") THEN 1 ELSE 0 END) AS present FROM attendances WHERE member_id = ?');
-        foreach ($rows as &$row) {
-            $stmt->execute([$row['id']]);
-            $att = $stmt->fetch();
-            $row['attendance'] = ($att['total'] > 0) ? round(($att['present'] / $att['total']) * 100) : 0;
-            $row['status'] = $row['status'] === 'aktif' ? 'Aktif' : 'Nonaktif';
-            // Normalize approved
-            $row['approved'] = ucfirst($row['approved']);
-        }
+        $rows = array_map(static function (array $row): array {
+            return [
+                'id' => (int) $row['id'],
+                'nim' => $row['nim'],
+                'name' => $row['name'],
+                'status' => $row['status'] === 'aktif' ? 'Aktif' : 'Nonaktif',
+                'approved' => ucfirst($row['approved']),
+                'faculty' => $row['faculty'] ?: '-',
+                'tahunMasuk' => $row['cohort_year'] ? (string) $row['cohort_year'] : '-',
+                'angkatanProbumsil' => $row['probumsil_cohort'] ?: '-',
+            ];
+        }, $statement->fetchAll());
         jsonResponse(['members' => $rows]);
     }
 
@@ -813,9 +891,16 @@ try {
         jsonResponse(['divisionTemplates' => $statement->fetchAll()]);
     }
 
-    // ── User Management ──
+    if ($method === 'DELETE' && ($segments[0] ?? '') === 'division-templates' && isset($segments[1]) && is_numeric($segments[1])) {
+        $statement = $pdo->prepare('DELETE FROM division_templates WHERE id = ?');
+        $statement->execute([(int) $segments[1]]);
+        $statement = $pdo->query('SELECT id, name FROM division_templates ORDER BY name');
+        jsonResponse(['message' => 'Template divisi berhasil dihapus.', 'divisionTemplates' => $statement->fetchAll()]);
+    }
 
-    // GET /users — list all users
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ User Management ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
+
+    // GET /users ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â list all users
     if ($method === 'GET' && $path === '/users') {
         $statement = $pdo->query(
             'SELECT users.id, users.name, users.nim_p, users.status, users.approved,
@@ -843,7 +928,7 @@ try {
         jsonResponse(['users' => $rows]);
     }
 
-    // POST /users — only creates user record, member is created on approval
+    // POST /users ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only creates user record, member is created on approval
     if ($method === 'POST' && $path === '/users') {
         $input = readJson();
         $name = trim((string) ($input['name'] ?? ''));
@@ -1031,7 +1116,7 @@ try {
         jsonResponse(['message' => 'Status pengguna berhasil diubah.', 'newStatus' => $newStatus === 'aktif' ? 'Aktif' : 'Nonaktif']);
     }
 
-    // GET /members/search?q=... — search members for user creation autocomplete
+    // GET /members/search?q=... ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â search members for user creation autocomplete
     if ($method === 'GET' && $path === '/members/search') {
         $q = trim((string) ($_GET['q'] ?? ''));
         if (strlen($q) < 2) {
@@ -1154,7 +1239,7 @@ try {
 
         $eventDbId = (int) $event['id'];
 
-        // GET /events/{slug} — detail kegiatan + daftar pertemuan
+        // GET /events/{slug} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â detail kegiatan + daftar pertemuan
         if ($method === 'GET' && count($segments) === 2) {
             jsonResponse([
                 'event' => formatEvent($pdo, $event),
@@ -1260,7 +1345,7 @@ try {
             jsonResponse(['message' => 'Kegiatan berhasil dihapus.']);
         }
 
-        // POST /events/{slug}/meetings — buat pertemuan baru
+        // POST /events/{slug}/meetings ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â buat pertemuan baru
         if ($method === 'POST' && ($segments[2] ?? '') === 'meetings' && count($segments) === 3) {
             $input = readJson();
             $title = trim((string) ($input['title'] ?? ''));
@@ -1402,16 +1487,29 @@ try {
 
             // POST /events/{slug}/meetings/{id}/sessions/start
             if ($method === 'POST' && ($segments[4] ?? '') === 'sessions' && ($segments[5] ?? '') === 'start') {
+                $statement = $pdo->prepare('UPDATE events SET status = "aktif" WHERE id = ? AND status = "selesai"');
+                $statement->execute([$eventDbId]);
+                $statement = $pdo->prepare('UPDATE meetings SET status = "aktif" WHERE id = ?');
+                $statement->execute([$meetingId]);
+                $statement = $pdo->prepare('DELETE FROM attendances WHERE meeting_id = ? AND status = "alpa" AND qr_payload = "SYSTEM-ALPA"');
+                $statement->execute([$meetingId]);
+
                 $existing = activeSession($pdo, $eventDbId, $meetingId);
                 if ($existing) {
-                    jsonResponse(['session' => $existing]);
+                    jsonResponse([
+                        'session' => $existing,
+                        'attendances' => attendanceRows($pdo, $eventDbId, $meetingId),
+                    ]);
                 }
 
                 $statement = $pdo->prepare(
                     'INSERT INTO attendance_sessions (event_id, meeting_id, started_by, started_at, status) VALUES (?, ?, ?, NOW(), "aktif")'
                 );
                 $statement->execute([$eventDbId, $meetingId, (int) $user['id']]);
-                jsonResponse(['session' => activeSession($pdo, $eventDbId, $meetingId)], 201);
+                jsonResponse([
+                    'session' => activeSession($pdo, $eventDbId, $meetingId),
+                    'attendances' => attendanceRows($pdo, $eventDbId, $meetingId),
+                ], 201);
             }
 
             // POST /events/{slug}/meetings/{id}/sessions/end
@@ -1493,31 +1591,46 @@ try {
                 $lateLimit = strtotime($meeting['meeting_date'] . ' ' . $meeting['start_time'] . ' +' . (int) $meeting['late_tolerance_minutes'] . ' minutes');
                 $status = time() > $lateLimit ? 'telat' : 'hadir';
 
-                $statement = $pdo->prepare(
-                    'INSERT INTO attendances (session_id, event_id, meeting_id, member_id, scanned_by, scanned_at, status, qr_payload)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-                );
+                $statement = $pdo->prepare('SELECT id, status, qr_payload FROM attendances WHERE meeting_id = ? AND member_id = ? LIMIT 1');
+                $statement->execute([$meetingId, (int) $member['id']]);
+                $existingAttendance = $statement->fetch();
 
-                try {
-                    $statement->execute([(int) $session['id'], $eventDbId, $meetingId, (int) $member['id'], (int) $user['id'], $scanTime, $status, $payload]);
-                } catch (PDOException $exception) {
-                    if ($exception->getCode() === '23000') {
+                if ($existingAttendance) {
+                    if ($existingAttendance['status'] === 'alpa' && $existingAttendance['qr_payload'] === 'SYSTEM-ALPA') {
+                        $statement = $pdo->prepare(
+                            'UPDATE attendances
+                             SET session_id = ?, scanned_by = ?, scanned_at = ?, status = ?, qr_payload = ?, note = NULL
+                             WHERE id = ?'
+                        );
+                        $statement->execute([(int) $session['id'], (int) $user['id'], $scanTime, $status, $payload, (int) $existingAttendance['id']]);
+                    } else {
                         jsonResponse(['message' => $member['name'] . ' sudah melakukan absensi pada pertemuan ini.'], 409);
                     }
-                    throw $exception;
+                } else {
+                    $statement = $pdo->prepare(
+                        'INSERT INTO attendances (session_id, event_id, meeting_id, member_id, scanned_by, scanned_at, status, qr_payload)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    );
+
+                    try {
+                        $statement->execute([(int) $session['id'], $eventDbId, $meetingId, (int) $member['id'], (int) $user['id'], $scanTime, $status, $payload]);
+                    } catch (PDOException $exception) {
+                        if ($exception->getCode() === '23000') {
+                            jsonResponse(['message' => $member['name'] . ' sudah melakukan absensi pada pertemuan ini.'], 409);
+                        }
+                        throw $exception;
+                    }
                 }
 
                 jsonResponse([
                     'message' => 'Absensi berhasil dicatat.',
+                    'session' => activeSession($pdo, $eventDbId, $meetingId),
                     'attendances' => attendanceRows($pdo, $eventDbId, $meetingId),
                 ], 201);
             }
             
             // POST /events/{slug}/meetings/{id}/scan-self
             if ($method === 'POST' && ($segments[4] ?? '') === 'scan-self') {
-                if (meetingAttendanceMode($meeting['attendance_mode'] ?? null, $meeting['location'] ?? null) !== 'online') {
-                    jsonResponse(['message' => 'Pertemuan offline menggunakan scan QR oleh Sekre atau Ketua Bidang.'], 422);
-                }
 
                 $session = activeSession($pdo, $eventDbId, $meetingId);
 
@@ -1533,8 +1646,8 @@ try {
                     jsonResponse(['message' => 'Akun Anda tidak terhubung dengan data anggota.'], 422);
                 }
 
-                if (empty($member['phone']) || empty($member['faculty']) || empty($member['cohort_year'])) {
-                    jsonResponse(['message' => 'Lengkapi nomor HP, fakultas, dan angkatan di profil sebelum melakukan absensi.'], 422);
+                if (empty($member['phone']) || empty($member['faculty']) || empty($member['cohort_year']) || empty($member['probumsil_cohort'])) {
+                    jsonResponse(['message' => 'Lengkapi nomor HP, fakultas, tahun masuk, dan angkatan PROBUMSIL di profil sebelum melakukan absensi.'], 422);
                 }
 
                 $statement = $pdo->prepare('SELECT COUNT(*) FROM event_participants WHERE event_id = ? AND member_id = ?');
@@ -1547,24 +1660,41 @@ try {
                 $lateLimit = strtotime($meeting['meeting_date'] . ' ' . $meeting['start_time'] . ' +' . (int) $meeting['late_tolerance_minutes'] . ' minutes');
                 $status = time() > $lateLimit ? 'telat' : 'hadir';
 
-                $statement = $pdo->prepare(
-                    'INSERT INTO attendances (session_id, event_id, meeting_id, member_id, scanned_by, scanned_at, status, qr_payload)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-                );
+                $statement = $pdo->prepare('SELECT id, status, qr_payload FROM attendances WHERE meeting_id = ? AND member_id = ? LIMIT 1');
+                $statement->execute([$meetingId, (int) $member['id']]);
+                $existingAttendance = $statement->fetch();
 
-                try {
-                    $statement->execute([(int) $session['id'], $eventDbId, $meetingId, (int) $member['id'], (int) $user['id'], $scanTime, $status, 'SELF-SCAN']);
-                } catch (PDOException $exception) {
-                    if ($exception->getCode() === '23000') {
+                if ($existingAttendance) {
+                    if ($existingAttendance['status'] === 'alpa' && $existingAttendance['qr_payload'] === 'SYSTEM-ALPA') {
+                        $statement = $pdo->prepare(
+                            'UPDATE attendances
+                             SET session_id = ?, scanned_by = ?, scanned_at = ?, status = ?, qr_payload = ?, note = NULL
+                             WHERE id = ?'
+                        );
+                        $statement->execute([(int) $session['id'], (int) $user['id'], $scanTime, $status, 'SELF-SCAN', (int) $existingAttendance['id']]);
+                    } else {
                         jsonResponse(['message' => 'Anda sudah melakukan absensi pada pertemuan ini.'], 409);
                     }
-                    throw $exception;
+                } else {
+                    $statement = $pdo->prepare(
+                        'INSERT INTO attendances (session_id, event_id, meeting_id, member_id, scanned_by, scanned_at, status, qr_payload)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    );
+
+                    try {
+                        $statement->execute([(int) $session['id'], $eventDbId, $meetingId, (int) $member['id'], (int) $user['id'], $scanTime, $status, 'SELF-SCAN']);
+                    } catch (PDOException $exception) {
+                        if ($exception->getCode() === '23000') {
+                            jsonResponse(['message' => 'Anda sudah melakukan absensi pada pertemuan ini.'], 409);
+                        }
+                        throw $exception;
+                    }
                 }
 
                 jsonResponse([
                     'message' => 'Absensi Anda berhasil dicatat.',
                     'attendances' => attendanceRows($pdo, $eventDbId, $meetingId),
-                    'session' => $session
+                    'session' => activeSession($pdo, $eventDbId, $meetingId)
                 ], 201);
             }
         }
@@ -1629,7 +1759,6 @@ try {
                 'permit' => $permit,
                 'absent' => $absent,
                 'total' => $total,
-                'percentage' => $total > 0 ? round((($present + $late) / $total) * 100) : 0,
             ];
         }, $rows);
 
@@ -1637,9 +1766,6 @@ try {
         $totalLate = array_sum(array_column($reportRows, 'late'));
         $totalPermit = array_sum(array_column($reportRows, 'permit'));
         $totalAbsent = array_sum(array_column($reportRows, 'absent'));
-        $avgPercentage = count($reportRows) > 0
-            ? round(array_sum(array_column($reportRows, 'percentage')) / count($reportRows))
-            : 0;
 
         jsonResponse([
             'rows' => $reportRows,
@@ -1648,7 +1774,6 @@ try {
                 'totalLate' => $totalLate,
                 'totalPermit' => $totalPermit,
                 'totalAbsent' => $totalAbsent,
-                'avgPercentage' => $avgPercentage,
                 'memberCount' => count($reportRows),
             ],
         ]);
@@ -1662,12 +1787,14 @@ try {
             'nim' => '-',
             'phone' => '-',
             'faculty' => '-',
+            'tahunMasuk' => '-',
             'angkatan' => '-',
+            'angkatanProbumsil' => '-',
             'profileComplete' => false,
             'qrToken' => '',
             'qrPayload' => '',
             'joined_at' => !empty($user['created_at']) ? indoDate($user['created_at']) : '-',
-            'stats' => ['present' => 0, 'permit' => 0, 'absent' => 0, 'percentage' => 0]
+            'stats' => ['present' => 0, 'permit' => 0, 'absent' => 0]
         ];
 
         if ($user['nim_p']) {
@@ -1680,8 +1807,10 @@ try {
                 $profile['name'] = $member['name'];
                 $profile['phone'] = $member['phone'] ?: '-';
                 $profile['faculty'] = $member['faculty'] ?: '-';
-                $profile['angkatan'] = $member['cohort_year'] ? (string) $member['cohort_year'] : '-';
-                $profile['profileComplete'] = !empty($member['phone']) && !empty($member['faculty']) && !empty($member['cohort_year']);
+                $profile['tahunMasuk'] = $member['cohort_year'] ? (string) $member['cohort_year'] : '-';
+                $profile['angkatan'] = $profile['tahunMasuk'];
+                $profile['angkatanProbumsil'] = $member['probumsil_cohort'] ?: '-';
+                $profile['profileComplete'] = !empty($member['phone']) && !empty($member['faculty']) && !empty($member['cohort_year']) && !empty($member['probumsil_cohort']);
                 if ($profile['profileComplete']) {
                     $profile['qrToken'] = $member['qr_token'] ?: '';
                     $profile['qrPayload'] = 'QR-PRESENPRO-' . $member['nim'];
@@ -1712,14 +1841,10 @@ try {
                     $present = (int) $stats['present'];
                     $permit = (int) $stats['permit'];
                     $absent = (int) $stats['absent'];
-                    $total = $present + $permit + $absent;
-                    $percentage = $total > 0 ? round(($present / $total) * 100) : 0;
-                    
                     $profile['stats'] = [
                         'present' => $present,
                         'permit' => $permit,
-                        'absent' => $absent,
-                        'percentage' => $percentage
+                        'absent' => $absent
                     ];
                 }
             }
@@ -1731,3 +1856,6 @@ try {
 } catch (Throwable $error) {
     jsonResponse(['message' => 'Server error.', 'detail' => $error->getMessage()], 500);
 }
+
+
+

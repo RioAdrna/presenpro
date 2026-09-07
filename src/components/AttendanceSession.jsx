@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import { CalendarClock, Camera, CameraOff, CircleDot, Clock, ScanLine, Search, StopCircle, ArrowLeft, Play, RefreshCw, UserCheck, SwitchCamera } from 'lucide-react'
 import Swal from 'sweetalert2'
 import SelectMenu from './SelectMenu'
+import TablePagination from './TablePagination'
 import { eventsApi } from '../lib/api'
 
 function StatusBadge({ status }) {
@@ -25,9 +26,7 @@ export default function AttendanceSession({ event, meeting, onBack }) {
   const [fetching, setFetching] = useState(true)
   
   const sessionRunning = Boolean(session?.active)
-  const online = meeting.attendanceMode === 'online'
-  
-  const [scanActive, setScanActive] = useState(false)
+const [scanActive, setScanActive] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [cameraState, setCameraState] = useState('Kamera belum aktif')
@@ -35,6 +34,8 @@ export default function AttendanceSession({ event, meeting, onBack }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Semua Status')
   const [refreshing, setRefreshing] = useState(false)
+  const [page, setPage] = useState(1)
+  const pageSize = 10
 
   const loadAttendance = useCallback(async (showLoader = false) => {
     if (showLoader) setFetching(true)
@@ -69,10 +70,18 @@ export default function AttendanceSession({ event, meeting, onBack }) {
       }),
     [logs, query, status],
   )
+  useEffect(() => {
+    setPage(1)
+  }, [query, status, logs.length])
+
+  const paginatedLogs = useMemo(
+    () => filteredLogs.slice((page - 1) * pageSize, page * pageSize),
+    [filteredLogs, page],
+  )
+
   const presentCount = logs.filter((log) => log.status === 'HADIR' || log.status === 'TELAT').length
   const lateCount = logs.filter((log) => log.status === 'TELAT').length
   const participantCount = event.participantCount || event.participants?.length || 0
-  const percent = participantCount ? Math.round((presentCount / participantCount) * 100) : 0
 
   const handleQrValue = useCallback(async (rawValue) => {
     if (!sessionRunning) {
@@ -82,6 +91,7 @@ export default function AttendanceSession({ event, meeting, onBack }) {
 
     try {
       const data = await eventsApi.scanMeeting(event.id, meeting.id, rawValue)
+      if (data.session) setSession(data.session)
       setLogs(data.attendances || [])
       setScanError('')
     } catch (error) {
@@ -281,12 +291,10 @@ export default function AttendanceSession({ event, meeting, onBack }) {
         </div>
         
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          {online && (
-            <button className="button-soft w-full text-[#9f7500] hover:bg-[#fff4cf] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto" onClick={handleSelfScan} disabled={!sessionRunning} title={!sessionRunning ? 'Buka sesi absensi terlebih dahulu' : undefined}>
-              <UserCheck size={15} />
-              Hadir Saya
-            </button>
-          )}
+          <button className="button-soft w-full text-[#9f7500] hover:bg-[#fff4cf] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto" onClick={handleSelfScan} disabled={!sessionRunning} title={!sessionRunning ? 'Buka sesi absensi terlebih dahulu' : undefined}>
+            <UserCheck size={15} />
+            Hadir Saya
+          </button>
           {!sessionRunning && (
             <button className="button-primary w-full sm:w-auto" onClick={startSession}>
               <Play size={15} />
@@ -365,9 +373,7 @@ export default function AttendanceSession({ event, meeting, onBack }) {
               <span className="text-[38px] font-black leading-none text-zinc-900">{presentCount}</span>
               <span className="pb-1 text-xl font-black text-zinc-600">/ {participantCount}</span>
             </div>
-            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-zinc-200">
-              <div className="h-full rounded-full bg-[#b58b00]" style={{ width: `${percent}%` }} />
-            </div>
+
           </div>
           <div className="surface card-motion p-5">
             <p className="flex items-center gap-2 text-[11px] font-black uppercase text-zinc-500">
@@ -429,8 +435,8 @@ export default function AttendanceSession({ event, meeting, onBack }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee7dd]">
-                {filteredLogs.map((log) => (
-                  <tr key={`${log.nim}-${log.time}`} className="text-sm transition hover:bg-[#fffaf0]">
+                {paginatedLogs.map((log) => (
+                  <tr key={log.id || `${log.nim}-${log.time}`} className="text-sm transition hover:bg-[#fffaf0]">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#eadfcb] text-xs font-black text-[#8b6800]">
@@ -455,8 +461,13 @@ export default function AttendanceSession({ event, meeting, onBack }) {
             </table>
           </div>
           <p className="border-t border-[#eee7dd] px-5 py-3 text-[11px] font-semibold text-zinc-400 sm:hidden">Geser tabel ke samping untuk melihat semua kolom.</p>
+          <TablePagination page={page} total={filteredLogs.length} pageSize={pageSize} onPageChange={setPage} itemLabel="log" />
         </div>
       </section>
     </div>
   )
 }
+
+
+
+

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  BarChart3,
   Calendar,
   CalendarCheck,
   Clock,
@@ -27,16 +27,10 @@ function StatCard({ item, index }) {
           <Icon size={18} strokeWidth={2.2} />
         </div>
       </div>
-      {item.progress !== undefined ? (
-        <div className="mt-8 h-1.5 overflow-hidden rounded-full bg-zinc-200">
-          <div className="h-full rounded-full bg-[#b58b00] transition-[width] duration-700" style={{ width: `${item.progress}%` }} />
-        </div>
-      ) : (
-        <div className="mt-8 flex items-center gap-1.5 text-[11px] font-bold text-[#b58b00]">
-          <NoteIcon size={12} />
-          <span>{item.note}</span>
-        </div>
-      )}
+      <div className="mt-8 flex items-center gap-1.5 text-[11px] font-bold text-[#b58b00]">
+        <NoteIcon size={12} />
+        <span>{item.note}</span>
+      </div>
     </div>
   )
 }
@@ -69,15 +63,12 @@ function AttendanceChart({ period, data = [] }) {
             const hadirHeight = (item.hadir / max) * 150
             const izinHeight = (item.izin / max) * 150
             const alpaHeight = (item.alpa / max) * 150
-            const total = item.hadir + item.izin + item.alpa
-            const percent = total > 0 ? Math.round((item.hadir / total) * 100) : 0
-
             return (
               <g
                 key={item.label}
-                onMouseEnter={() => setActivePoint({ ...item, percent, x: Math.min(78, Math.max(8, (index / Math.max(1, data.length - 1)) * 82)), y: 18 })}
+                onMouseEnter={() => setActivePoint({ ...item, x: Math.min(78, Math.max(8, (index / Math.max(1, data.length - 1)) * 82)), y: 18 })}
                 onMouseLeave={() => setActivePoint(null)}
-                onFocus={() => setActivePoint({ ...item, percent, x: Math.min(78, Math.max(8, (index / Math.max(1, data.length - 1)) * 82)), y: 18 })}
+                onFocus={() => setActivePoint({ ...item, x: Math.min(78, Math.max(8, (index / Math.max(1, data.length - 1)) * 82)), y: 18 })}
                 onBlur={() => setActivePoint(null)}
                 tabIndex="0"
               >
@@ -98,7 +89,7 @@ function AttendanceChart({ period, data = [] }) {
           {activePoint && (
             <>
               <p className="font-black text-zinc-900">{activePoint.label} - {period}</p>
-              <p className="mt-1 font-semibold text-[#9f7500]">Hadir {activePoint.percent}%</p>
+
               <p className="mt-1 text-[11px] font-semibold text-zinc-500">
                 {activePoint.hadir} hadir, {activePoint.izin} izin, {activePoint.alpa} alpa
               </p>
@@ -153,7 +144,7 @@ function ActivityCard({ activity }) {
       </div>
     </article>
   )
-}
+}   
 
 export default function Dashboard() {
   const isInitialLoading = useSkeletonLoading()
@@ -161,7 +152,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   const [period, setPeriod] = useState('Mingguan')
-  const [showAllActivities, setShowAllActivities] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
@@ -182,8 +173,8 @@ export default function Dashboard() {
   }, [])
 
   const visibleActivities = useMemo(
-    () => (showAllActivities ? data.recentActivities : data.recentActivities.slice(0, 3)),
-    [showAllActivities, data.recentActivities],
+    () => data.recentActivities.slice(0, 3),
+    [data.recentActivities],
   )
 
   if (isInitialLoading || loading) return <DashboardSkeleton />
@@ -191,8 +182,7 @@ export default function Dashboard() {
   const statsList = [
     { title: 'TOTAL ANGGOTA', value: data.stats?.totalMembers || '0', note: 'Anggota Aktif', icon: Users, type: 'trend' },
     { title: 'KEGIATAN AKTIF', value: data.stats?.activeEvents || '0', note: 'Berjalan/Akan Datang', icon: CalendarCheck, type: 'clock' },
-    { title: 'HADIR HARI INI', value: data.stats?.presentToday || '0', icon: UserCheck, progress: data.stats?.attendancePercent || 0 },
-    { title: 'TINGKAT KEHADIRAN', value: `${data.stats?.attendancePercent || 0}%`, note: 'Keseluruhan', icon: BarChart3, type: 'trend' },
+    { title: 'HADIR HARI INI', value: data.stats?.presentToday || '0', note: 'Tercatat Hari Ini', icon: UserCheck, type: 'trend' },
   ]
 
   return (
@@ -206,7 +196,7 @@ export default function Dashboard() {
         </p>
       </section>
 
-      <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {statsList.map((item, index) => (
           <StatCard key={item.title} item={item} index={index} />
         ))}
@@ -236,9 +226,9 @@ export default function Dashboard() {
             <h2 className="text-lg font-black text-zinc-800">Recent Activities</h2>
             <button
               className="text-[11px] font-black text-[#b58b00] hover:text-[#8b6800]"
-              onClick={() => setShowAllActivities((value) => !value)}
+              onClick={() => navigate('/kegiatan')}
             >
-              {showAllActivities ? 'Ringkas' : 'View All'}
+              View All
             </button>
           </div>
           <div className="space-y-3">
