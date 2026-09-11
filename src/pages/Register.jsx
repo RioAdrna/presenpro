@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { ArrowRight, Eye, EyeOff, LockKeyhole, User, CreditCard } from 'lucide-react'
 import Swal from 'sweetalert2'
 import useAuth from '../hooks/useAuth'
@@ -7,6 +7,7 @@ import { authApi } from '../lib/api'
 
 export default function Register() {
   const { authenticated } = useAuth()
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -28,8 +29,8 @@ export default function Register() {
       return
     }
 
-    if (!/^\d{7}-\d{4}\.[IVXLCDM]+$/i.test(form.nimP.trim())) {
-      setError('Format NIM-P harus seperti 2406411-1031.XVIII.')
+    if (!/^\d+-\d+\.[A-Z0-9]+$/i.test(form.nimP.trim())) {
+      setError('Format NIM-P harus berupa angka-angka.kode, misalnya XXXXXXX-XXXX.XXXX.')
       return
     }
 
@@ -48,12 +49,13 @@ export default function Register() {
 
       await Swal.fire({
         icon: 'success',
-        title: 'Registrasi Terkirim',
-        text: data.message || 'Akun Anda menunggu persetujuan.',
+        title: 'Registrasi Berhasil',
+        text: data.message || 'Registrasi berhasil, tunggu informasi selanjutnya jika sudah disetujui.',
         confirmButtonColor: '#10b981',
       })
 
       setForm({ name: '', nimP: '', password: '', passwordConfirmation: '' })
+      navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -121,7 +123,7 @@ export default function Register() {
                     type="text"
                     value={form.nimP}
                     onChange={(event) => setForm({ ...form, nimP: event.target.value })}
-                    placeholder="2406411-1031.XVIII"
+                    placeholder="XXXXXXX-XXXX.XXXX"
                     required
                   />
                 </div>

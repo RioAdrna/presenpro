@@ -1,35 +1,46 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
+import { usersApi } from '../lib/api'
 
 export default function MemberQrCard({ profile }) {
   const [qrImage, setQrImage] = useState('')
-  const qrValue = profile?.qrPayload || profile?.qrToken || profile?.nim || ''
 
   useEffect(() => {
     let cancelled = false
 
-    if (!qrValue) {
-      return
+    let refreshTimer
+    async function refreshQr() {
+      try {
+        const data = await usersApi.getQrToken()
+        if (cancelled) return
+        const url = await QRCode.toDataURL(data.payload, {
+          errorCorrectionLevel: 'M', margin: 2, width: 280,
+          color: { dark: '#18181b', light: '#ffffff' },
+        })
+        if (!cancelled) {
+          setQrImage(url)
+        }
+      } catch {
+        if (!cancelled) setQrImage('')
+      }
     }
-
-    QRCode.toDataURL(qrValue, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 280,
-      color: {
-        dark: '#18181b',
-        light: '#ffffff',
-      },
-    }).then((url) => {
-      if (!cancelled) setQrImage(url)
-    })
+    refreshQr()
+    refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshQr()
+    }, 15000)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshQr()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       cancelled = true
+      window.clearInterval(refreshTimer)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [qrValue])
+  }, [profile?.nim])
 
-  if (!qrValue) return null
+  if (!profile?.nim) return null
 
   return (
     <section className="rounded-lg bg-zinc-950 p-5 text-white shadow-[0_14px_30px_rgba(24,24,27,0.18)]">
@@ -43,7 +54,7 @@ export default function MemberQrCard({ profile }) {
 
       <div className="mt-5 rounded-lg bg-white p-4">
         {qrImage ? (
-          <img src={qrImage} alt="QR absensi" className="mx-auto aspect-square w-full max-w-[260px]" />
+          <img src={qrImage} alt="QR absensi dinamis" className="mx-auto aspect-square w-full max-w-[260px]" />
         ) : (
           <div className="mx-auto aspect-square w-full max-w-[260px] animate-pulse rounded-lg bg-zinc-100" />
         )}

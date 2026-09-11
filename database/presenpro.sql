@@ -150,14 +150,6 @@ CREATE TABLE IF NOT EXISTS attendances (
   CONSTRAINT fk_attendances_scanner FOREIGN KEY (scanned_by) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS app_settings (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  setting_key VARCHAR(80) NOT NULL UNIQUE,
-  setting_value TEXT NOT NULL,
-  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
 INSERT INTO roles (id, name, label) VALUES
   (1, 'super_admin', 'Ketua Bidang'),
   (2, 'admin', 'Anggota Sekretaris'),
@@ -276,14 +268,3 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   qr_payload = VALUES(qr_payload),
   note = VALUES(note);
-
-INSERT INTO app_settings (setting_key, setting_value) VALUES
-  ('organization_name', 'PROBUMSIL'),
-  ('timezone', 'Asia/Jakarta'),
-  ('member_id_format', 'NIM / ID'),
-  ('qr_lifetime_seconds', '10'),
-  ('default_late_tolerance_minutes', '15'),
-  ('admin_notification', 'aktif'),
-  ('qr_verification', 'wajib')
-ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
-

@@ -30,6 +30,7 @@ const [scanActive, setScanActive] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [cameraState, setCameraState] = useState('Kamera belum aktif')
+  const [cameraAttempt, setCameraAttempt] = useState(0)
   const [scanError, setScanError] = useState('')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Semua Status')
@@ -121,7 +122,9 @@ const [scanActive, setScanActive] = useState(false)
       setCameraState('Meminta izin kamera...')
 
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Browser ini belum mendukung akses kamera.')
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Kamera membutuhkan koneksi HTTPS. Buka aplikasi melalui alamat HTTPS lalu izinkan akses kamera.')
+        }
 
         let stream
         try {
@@ -155,7 +158,7 @@ const [scanActive, setScanActive] = useState(false)
         const detector = 'BarcodeDetector' in window ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null
         const canvas = canvasRef.current
         const context = canvas?.getContext('2d', { willReadFrequently: true })
-        setCameraState(detector ? 'Kamera aktif - detector browser' : 'Kamera aktif - detector fallback')
+        setCameraState(detector ? 'Kamera aktif' : 'Kamera aktif - mode kompatibel')
 
         const scanFrame = async () => {
           if (cancelled || !videoNode) return
@@ -192,7 +195,12 @@ const [scanActive, setScanActive] = useState(false)
         scanFrame()
       } catch (error) {
         setCameraState('Kamera tidak aktif')
-        setScanError(error?.message || 'Gagal membuka kamera.')
+      const message = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError'
+        ? 'Akses kamera ditolak. Tekan Izinkan pada permintaan browser, atau ubah izin Kamera untuk situs ini.'
+        : error?.name === 'NotFoundError'
+          ? 'Kamera tidak ditemukan pada perangkat ini.'
+          : error?.message || 'Gagal membuka kamera.'
+      setScanError(message)
       }
     }
 
@@ -208,7 +216,7 @@ const [scanActive, setScanActive] = useState(false)
       setCameraOn(false)
       setCameraState('Kamera belum aktif')
     }
-  }, [cameraFacing, handleQrValue, scanActive])
+  }, [cameraFacing, cameraAttempt, handleQrValue, scanActive])
 
   function toggleScan() {
     if (!scanActive && !sessionRunning) {
@@ -327,7 +335,16 @@ const [scanActive, setScanActive] = useState(false)
               )}
             </div>
           </div>
-          {scanError && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{scanError}</p>}
+          {scanError && (
+            <div className="mt-4 rounded-lg bg-red-50 px-3 py-3 text-xs font-bold text-red-600">
+              <p>{scanError}</p>
+              {scanActive && !cameraOn && (
+                <button type="button" className="mt-2 rounded-full bg-red-600 px-3 py-2 text-[11px] font-black text-white" onClick={() => setCameraAttempt((value) => value + 1)}>
+                  Izinkan / Coba Lagi
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {scanActive && (
@@ -467,7 +484,6 @@ const [scanActive, setScanActive] = useState(false)
     </div>
   )
 }
-
 
 
 

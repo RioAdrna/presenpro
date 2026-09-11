@@ -54,6 +54,7 @@ export async function apiFetch(path, options = {}) {
 
   const response = await fetch(endpoint(path), {
     ...options,
+    cache: 'no-store',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
@@ -110,6 +111,7 @@ export const usersApi = {
   remove: (id) => apiFetch(`/users/${id}`, { method: 'DELETE' }),
   resetPassword: (id) => apiFetch(`/users/${id}/reset-password`, { method: 'PATCH' }),
   getProfile: () => apiFetch('/profile'),
+  getQrToken: () => apiFetch('/profile/qr-token'),
   updateProfile: (data) => apiFetch('/profile', { method: 'PATCH', body: data }),
 }
 

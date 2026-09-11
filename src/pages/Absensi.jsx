@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarClock, Camera, CameraOff, CircleDot, ScanLine, Search } from 'lucide-react'
+import { CalendarClock, Camera, CameraOff, CircleDot, RefreshCw, ScanLine, Search } from 'lucide-react'
 import SelectMenu from '../components/SelectMenu'
 import TablePagination from '../components/TablePagination'
 import { PageSkeleton } from '../components/Skeleton'
@@ -82,6 +82,10 @@ export default function Absensi() {
 
   const presentCount = logs.filter((log) => log.status === 'HADIR').length + logs.filter((log) => log.status === 'TELAT').length
   const participantCount = activeEvent?.participantCount || 50
+
+  function refreshLocalTable() {
+    setLogs(loadLogs(activeEvent?.id || 'rapat-pengurus-probumsil'))
+  }
 
   useEffect(() => {
     logsRef.current = logs
@@ -326,10 +330,16 @@ export default function Absensi() {
       <section className="surface overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#eee7dd] px-5 py-4">
           <h2 className="text-xl font-black text-zinc-800">Log Kehadiran</h2>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f2eee6] px-3 py-1 text-[10px] font-black text-[#9f7500]">
-            <CircleDot size={11} fill="currentColor" className={scanActive ? 'animate-pulse' : ''} />
-            {scanActive ? 'LIVE' : 'PAUSED'}
-          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" className="button-soft h-9 px-3 text-xs" onClick={refreshLocalTable} title="Refresh tabel">
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f2eee6] px-3 py-1 text-[10px] font-black text-[#9f7500]">
+              <CircleDot size={11} fill="currentColor" className={scanActive ? 'animate-pulse' : ''} />
+              {scanActive ? 'LIVE' : 'PAUSED'}
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">

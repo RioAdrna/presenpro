@@ -80,7 +80,7 @@ export default function Login() {
                     type="text"
                     value={form.identifier}
                     onChange={(event) => setForm({ ...form, identifier: event.target.value })}
-                    placeholder="2406411-1031.XVIII"
+                    placeholder="XXXXXXX-XXXX.XXXX"
                     required
                   />
                 </div>

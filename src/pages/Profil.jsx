@@ -63,7 +63,6 @@ export default function Profil() {
         angkatan: formAngkatan || '-',
         angkatanProbumsil: formAngkatanProbumsil || '-',
         profileComplete: Boolean(formPhone.trim() && formFaculty.trim() && formAngkatan.trim() && formAngkatanProbumsil.trim()),
-        qrPayload: formNim.trim() ? `QR-PRESENPRO-${formNim.trim().toUpperCase()}` : '',
       }))
       setEditModalOpen(false)
       Swal.fire({ icon: 'success', title: 'Berhasil', text: data.message, confirmButtonColor: '#10b981' })
@@ -204,7 +203,7 @@ export default function Profil() {
           </label>
           <label className="space-y-2">
             <span className="text-xs font-black uppercase text-zinc-600">NIM-P</span>
-            <input type="text" value={formNim} onChange={e => setFormNim(e.target.value)} placeholder="2406411-1031.XVIII" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
+          <input type="text" value={formNim} onChange={e => setFormNim(e.target.value)} placeholder="XXXXXXX-XXXX.XXXX" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
           </label>
           <label className="space-y-2">
             <span className="text-xs font-black uppercase text-zinc-600">Nomor Telepon</span>

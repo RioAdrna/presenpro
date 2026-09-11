@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Download, Filter, ListChecks, UserRoundCheck, UserRoundX, Users } from 'lucide-react'
+import { CalendarDays, Download, Filter, ListChecks, RefreshCw, UserRoundCheck, UserRoundX, Users } from 'lucide-react'
 import Swal from 'sweetalert2'
 import { PageSkeleton } from '../components/Skeleton'
 import SelectMenu from '../components/SelectMenu'
@@ -383,8 +383,15 @@ export default function Laporan() {
       const link = document.createElement('a')
       link.href = url
       link.download = `${fileName}.xlsx`
+      link.type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      link.rel = 'noopener'
+      link.style.display = 'none'
+      document.body.appendChild(link)
       link.click()
-      URL.revokeObjectURL(url)
+      window.setTimeout(() => {
+        link.remove()
+        URL.revokeObjectURL(url)
+      }, 1000)
       return
     }
 
@@ -459,7 +466,11 @@ export default function Laporan() {
             <h2 className="text-xl font-black text-zinc-900">Detail Laporan</h2>
             {selectedEvent && <p className="mt-1 text-xs font-bold text-[#9f7500]">{reportTitle()}</p>}
           </div>
-          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
+          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-3">
+            <button className="button-soft px-4 py-2" onClick={fetchReport} disabled={loadingReport} title="Refresh tabel">
+              <RefreshCw size={13} className={loadingReport ? 'animate-spin' : ''} />
+              Refresh
+            </button>
             <button className="button-primary px-4 py-2" onClick={() => exportReport('PDF')}>
               <Download size={13} />
               Export PDF

@@ -4,6 +4,9 @@ date_default_timezone_set('Asia/Jakarta');
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token');
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 
@@ -65,6 +68,51 @@ function makeToken(array $user, string $secret): string
     $body = rtrim(strtr(base64_encode(json_encode($payload)), '+/', '-_'), '=');
     $signature = hash_hmac('sha256', $body, $secret);
     return $body . '.' . $signature;
+}
+
+function base64UrlEncode(string $value): string
+{
+    return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+}
+
+function base64UrlDecode(string $value): string|false
+{
+    $padding = strlen($value) % 4;
+    if ($padding > 0) $value .= str_repeat('=', 4 - $padding);
+    return base64_decode(strtr($value, '-_', '+/'), true);
+}
+
+function makeDynamicQrPayload(array $member, string $secret): array
+{
+    $issuedAt = time();
+    $body = base64UrlEncode((string) json_encode([
+        'v' => 1,
+        'memberId' => (int) $member['id'],
+        'nim' => (string) $member['nim'],
+        'iat' => $issuedAt,
+        'exp' => $issuedAt + 15,
+        'nonce' => bin2hex(random_bytes(8)),
+    ], JSON_UNESCAPED_SLASHES));
+    return [
+        'payload' => 'PPQR1.' . $body . '.' . hash_hmac('sha256', $body, $secret),
+        'expiresAt' => $issuedAt + 15,
+    ];
+}
+
+function readDynamicQrPayload(string $payload, string $secret): ?array
+{
+    $parts = explode('.', $payload, 3);
+    if (count($parts) !== 3 || $parts[0] !== 'PPQR1') return null;
+    [, $body, $signature] = $parts;
+    if (!hash_equals(hash_hmac('sha256', $body, $secret), $signature)) return null;
+    $decoded = base64UrlDecode($body);
+    $data = $decoded === false ? null : json_decode($decoded, true);
+    $now = time();
+    if (!is_array($data) || ($data['v'] ?? null) !== 1) return null;
+    if (!isset($data['memberId'], $data['nim'], $data['iat'], $data['exp'], $data['nonce'])) return null;
+    if ((int) $data['exp'] < $now || (int) $data['iat'] > $now + 5) return null;
+    if ((int) $data['exp'] - (int) $data['iat'] !== 15) return null;
+    return $data;
 }
 
 function readBearer(): string
@@ -590,8 +638,8 @@ try {
             jsonResponse(['message' => 'Nama lengkap, NIM-P, dan password wajib diisi.'], 422);
         }
 
-        if (!preg_match('/^\d{7}-\d{4}\.[IVXLCDM]+$/i', $nimP)) {
-            jsonResponse(['message' => 'Format NIM-P harus seperti 2406411-1031.XVIII.'], 422);
+        if (!preg_match('/^\d+-\d+\.[A-Z0-9]+$/i', $nimP)) {
+            jsonResponse(['message' => 'Format NIM-P harus berupa angka-angka.kode, misalnya XXXXXXX-XXXX.XXXX.'], 422);
         }
 
         if (strlen($password) < 6) {
@@ -631,7 +679,7 @@ try {
             throw $e;
         }
 
-        jsonResponse(['message' => 'Registrasi berhasil dikirim. Akun Anda menunggu persetujuan.'], 201);
+        jsonResponse(['message' => 'Registrasi berhasil, tunggu informasi selanjutnya jika sudah disetujui.'], 201);
     }
 
     if ($method === 'POST' && $path === '/auth/login') {
@@ -710,7 +758,7 @@ try {
 
         $nim = $nim !== '' ? strtoupper($nim) : (string) $user['nim_p'];
         if (!preg_match('/^\d{7}-\d{4}\.[IVXLCDM]+$/i', $nim)) {
-            jsonResponse(['message' => 'Format NIM-P harus seperti 2406411-1031.XVIII.'], 422);
+            jsonResponse(['message' => 'Format NIM-P harus berupa angka-angka.kode, misalnya XXXXXXX-XXXX.XXXX.'], 422);
         }
         $nimStatement = $pdo->prepare('SELECT id FROM users WHERE nim_p = ? AND id <> ? LIMIT 1');
         $nimStatement->execute([$nim, $userId]);
@@ -1553,25 +1601,13 @@ try {
                 }
 
                 $payload = trim((string) ($input['qrPayload'] ?? ''));
-                $prefix = 'QR-PRESENPRO-';
-                $nimCandidates = [$payload];
-                if (str_starts_with($payload, $prefix)) {
-                    $nimCandidates[] = substr($payload, strlen($prefix));
-                } else {
-                    preg_match('/\d{7}-\d{4}\.[IVXLCDM]+/i', $payload, $nimMatches);
-                    if (!empty($nimMatches[0])) {
-                        $nimCandidates[] = strtoupper($nimMatches[0]);
-                    }
-                    preg_match('/\d{4,}/', $payload, $numberMatches);
-                    if (!empty($numberMatches[0])) {
-                        $nimCandidates[] = $numberMatches[0];
-                    }
+                $qrData = readDynamicQrPayload($payload, $secret);
+                if (!$qrData) {
+                    jsonResponse(['message' => 'QR kedaluwarsa atau tidak valid. Minta anggota menampilkan QR terbaru.'], 422);
                 }
-                $nimCandidates = array_values(array_unique(array_filter(array_map('trim', $nimCandidates))));
 
-                $placeholders = implode(',', array_fill(0, count($nimCandidates), '?'));
-                $statement = $pdo->prepare("SELECT members.* FROM members WHERE (nim IN ({$placeholders}) OR qr_token = ?) AND status = 'aktif' LIMIT 1");
-                $statement->execute([...$nimCandidates, $payload]);
+                $statement = $pdo->prepare('SELECT members.* FROM members WHERE id = ? AND nim = ? AND status = "aktif" LIMIT 1');
+                $statement->execute([(int) $qrData['memberId'], (string) $qrData['nim']]);
                 $member = $statement->fetch();
                 if (!$member) {
                     jsonResponse(['message' => 'QR tidak valid atau anggota tidak terdaftar.'], 422);
@@ -1813,7 +1849,6 @@ try {
                 $profile['profileComplete'] = !empty($member['phone']) && !empty($member['faculty']) && !empty($member['cohort_year']) && !empty($member['probumsil_cohort']);
                 if ($profile['profileComplete']) {
                     $profile['qrToken'] = $member['qr_token'] ?: '';
-                    $profile['qrPayload'] = 'QR-PRESENPRO-' . $member['nim'];
                 }
 
                 if (empty($user['created_at']) && !empty($member['joined_at'])) {
@@ -1850,6 +1885,17 @@ try {
             }
         }
         jsonResponse($profile);
+    }
+
+    // GET /profile/qr-token - QR dinamis, berlaku 15 detik dan terikat ke anggota
+    if ($method === 'GET' && $path === '/profile/qr-token') {
+        $statement = $pdo->prepare('SELECT * FROM members WHERE nim = ? AND status = "aktif" LIMIT 1');
+        $statement->execute([$user['nim_p']]);
+        $member = $statement->fetch();
+        if (!$member || empty($member['phone']) || empty($member['faculty']) || empty($member['cohort_year']) || empty($member['probumsil_cohort'])) {
+            jsonResponse(['message' => 'Profil anggota belum lengkap.'], 422);
+        }
+        jsonResponse(makeDynamicQrPayload($member, $secret));
     }
 
     jsonResponse(['message' => 'Endpoint tidak ditemukan.'], 404);

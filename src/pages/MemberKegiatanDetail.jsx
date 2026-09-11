@@ -166,6 +166,7 @@ export default function MemberKegiatanDetail() {
 
     let cancelled = false
     const refreshSessions = async () => {
+      if (document.visibilityState !== 'visible') return
       const results = await Promise.all(event.meetings.map((meeting) => eventsApi.meetingAttendance(event.id, meeting.id).catch(() => null)))
       if (cancelled) return
       const nextSessions = {}
@@ -180,10 +181,12 @@ export default function MemberKegiatanDetail() {
       setSessionStatuses(nextSessions)
       setAttendanceStatuses(nextStatuses)
     }
-    const timer = window.setInterval(refreshSessions, 8000)
+    const timer = window.setInterval(refreshSessions, 15000)
+    document.addEventListener('visibilitychange', refreshSessions)
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshSessions)
     }
   }, [event, profile?.nim])
 

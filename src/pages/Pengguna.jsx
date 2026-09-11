@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, Plus, Search, ShieldCheck, Trash2, ToggleLeft, ToggleRight, CheckCircle2, XCircle } from 'lucide-react'
+import { Eye, Plus, RefreshCw, Search, ShieldCheck, Trash2, ToggleLeft, ToggleRight, CheckCircle2, XCircle } from 'lucide-react'
 import Swal from 'sweetalert2'
 import Modal from '../components/Modal'
 import SelectMenu from '../components/SelectMenu'
@@ -29,7 +29,9 @@ export default function Pengguna() {
   const [formName, setFormName] = useState('')
   const [formNimP, setFormNimP] = useState('')
   const [formPassword, setFormPassword] = useState('')
+  const [formPasswordConfirmation, setFormPasswordConfirmation] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Edit user role state
   const [editRole, setEditRole] = useState('')
@@ -45,6 +47,16 @@ export default function Pengguna() {
       .finally(() => { if (!cancelled) setLoadingUsers(false) })
     return () => { cancelled = true }
   }, [])
+
+  async function refreshUsers() {
+    setRefreshing(true)
+    try {
+      const data = await usersApi.list()
+      setUsers(data.users || [])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const filteredUsers = useMemo(
     () =>
@@ -73,6 +85,10 @@ export default function Pengguna() {
       Swal.fire({ icon: 'warning', title: 'Data Tidak Lengkap', text: 'Nama, NIM-P, dan Password wajib diisi.', confirmButtonColor: '#f6bd16' })
       return
     }
+    if (formPassword !== formPasswordConfirmation) {
+      Swal.fire({ icon: 'warning', title: 'Password Tidak Sama', text: 'Password dan konfirmasi password harus sama.', confirmButtonColor: '#f6bd16' })
+      return
+    }
 
     setSubmitting(true)
     try {
@@ -92,6 +108,7 @@ export default function Pengguna() {
     setFormName('')
     setFormNimP('')
     setFormPassword('')
+    setFormPasswordConfirmation('')
     setSelectedUser(null)
   }
 
@@ -204,6 +221,13 @@ export default function Pengguna() {
       </section>
 
       <section className="surface overflow-hidden rounded-[28px]">
+        <div className="flex items-center justify-between border-b border-[#eee7dd] px-5 py-4">
+          <h2 className="text-xl font-black text-zinc-800">Daftar Pengguna</h2>
+          <button type="button" className="button-soft h-9 px-3 text-xs" onClick={refreshUsers} disabled={refreshing} title="Refresh tabel">
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
         {loadingUsers ? (
           <div className="flex items-center justify-center py-16 text-sm font-bold text-zinc-400">Memuat data...</div>
         ) : (
@@ -312,12 +336,17 @@ export default function Pengguna() {
           </label>
           <label className="space-y-2">
             <span className="text-xs font-black uppercase text-zinc-600">NIM-P</span>
-            <input type="text" value={formNimP} onChange={(e) => setFormNimP(e.target.value)} placeholder="2406411-1031.XVIII" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
+            <input type="text" value={formNimP} onChange={(e) => setFormNimP(e.target.value)} placeholder="XXXXXXX-XXXX.XXXX" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
           </label>
 
           <label className="space-y-2">
             <span className="text-xs font-black uppercase text-zinc-600">Password</span>
             <input type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} placeholder="Password" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
+          </label>
+
+          <label className="space-y-2">
+            <span className="text-xs font-black uppercase text-zinc-600">Konfirmasi Password</span>
+            <input type="password" value={formPasswordConfirmation} onChange={(e) => setFormPasswordConfirmation(e.target.value)} placeholder="Ulangi password" className="h-11 w-full rounded-lg border border-[#e8dfd2] px-4 text-sm font-semibold outline-none focus:border-[#d8b149]" />
           </label>
 
           <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

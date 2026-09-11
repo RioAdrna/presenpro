@@ -139,7 +139,7 @@ export function readAttendanceLogs(eventId) {
 }
 
 export function writeAttendanceLogs(eventId, logs) {
-  if (canUseStorage()) window.localStorage.setItem(`presenpro.logs.${eventId}`, JSON.stringify(logs))
+  if (canUseStorage()) window.localStorage.setItem(`presenpro.logs.${eventId}`, JSON.stringify(logs.slice(0, 500)))
 }
 
 export function normalizeQrValue(rawValue) {

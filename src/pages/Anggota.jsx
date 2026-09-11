@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, Search } from 'lucide-react'
+import { Eye, RefreshCw, Search } from 'lucide-react'
 import Modal from '../components/Modal'
 import SelectMenu from '../components/SelectMenu'
 import TablePagination from '../components/TablePagination'
@@ -30,6 +30,7 @@ export default function Anggota() {
   const [probumsilCohort, setProbumsilCohort] = useState('Semua Angkatan')
   const [page, setPage] = useState(1)
   const [selectedMember, setSelectedMember] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +44,16 @@ export default function Anggota() {
       })
     return () => { cancelled = true }
   }, [])
+
+  async function refreshMembers() {
+    setRefreshing(true)
+    try {
+      const res = await membersApi.list()
+      setMembers(res.members || [])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const cohortOptions = useMemo(() => {
     const values = members
@@ -98,6 +109,13 @@ export default function Anggota() {
       </section>
 
       <section className="surface overflow-hidden rounded-[20px]">
+        <div className="flex items-center justify-between border-b border-[#eee7dd] px-5 py-4">
+          <h2 className="text-xl font-black text-zinc-800">Daftar Anggota</h2>
+          <button type="button" className="button-soft h-9 px-3 text-xs" onClick={refreshMembers} disabled={refreshing} title="Refresh tabel">
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
         {loading ? (
           <div className="flex items-center justify-center py-16 text-sm font-bold text-zinc-400">Memuat anggota...</div>
         ) : (
